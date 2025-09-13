@@ -15,7 +15,7 @@
     "@adiwajshing/keyed-db": "^0.2.4",
     "@viper-x/fancytext": "^1.0.2",
     "@octokit/rest": "^22.0.0",
-    "maher-zubair-baileys": "^6.6.5",
+    "crypto": "^1.0.1",
     "pino": "^7.0.5",
     "pm2": "^5.2.0",
     "util": "^0.12.4",
