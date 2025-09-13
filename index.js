@@ -48,7 +48,7 @@ const port = process.env.PORT || 8000;
 
 // GitHub Configuration
 const octokit = new Octokit({
-    auth: process.env.GITHUB_TOKEN || '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'
+    auth: process.env.GITHUB_TOKEN || ''
 });
 const owner = process.env.GITHUB_REPO_OWNER || 'Walukapah';
 const repo = process.env.GITHUB_REPO_NAME || 'SRI-DATABASE';
