@@ -11,7 +11,7 @@
   "author": "WalukaPahan",
   "license": "GPL-3.0 license",
   "dependencies": {
-    "@whiskeysockets/baileys": "github:kiuur/bails",
+    "@whiskeysockets/baileys": "npm:baileys-pro@latest",
     "@adiwajshing/keyed-db": "^0.2.4",
     "@viper-x/fancytext": "^1.0.2",
     "maher-zubair-baileys": "^6.6.5",
