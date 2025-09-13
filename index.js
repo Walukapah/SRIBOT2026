@@ -111,57 +111,41 @@ async function connectToWAMulti(number, res = null) { // Added res parameter for
                     console.log(`Logged out from ${sanitizedNumber}, removing session files.`);
                     await fsExtra.remove(sessionPath); // Remove local session files
                 }
-            // index.js (සංශෝධිත plugins load කිරීමේ part එක)
-} else if (connection === 'open') {
-    console.log('Installing plugins...');
-    
-    try {
-        // Load commands first
-        const { commands } = require('./command');
-        console.log(`Loaded ${commands.length} commands`);
-        
-        // Then load plugins from plugins directory
-        const pluginPath = path.join(__dirname, 'plugins');
-        if (fs.existsSync(pluginPath)) {
-            const pluginFiles = fs.readdirSync(pluginPath).filter(file => 
-                path.extname(file).toLowerCase() === '.js'
-            );
-            
-            console.log(`Found ${pluginFiles.length} plugin files`);
-            
-            for (const pluginFile of pluginFiles) {
-                try {
-                    const pluginPathFull = path.join(pluginPath, pluginFile);
-                    console.log(`Loading plugin: ${pluginFile}`);
-                    
-                    // Clear cache for this specific plugin
-                    delete require.cache[require.resolve(pluginPathFull)];
-                    
-                    const plugin = require(pluginPathFull);
-                    
-                    if (typeof plugin === 'function') {
-                        plugin(conn);
-                        console.log(`✓ Successfully loaded plugin: ${pluginFile}`);
-                    } else {
-                        console.log(`✗ Plugin ${pluginFile} is not a function`);
+            } else if (connection === 'open') {
+                console.log('Installing plugins...');
+                const pluginPath = path.join(__dirname, 'plugins');
+                
+                // Clear require cache to ensure fresh plugin loading
+                Object.keys(require.cache).forEach(key => {
+                    if (key.includes(pluginPath)) {
+                        delete require.cache[key];
                     }
-                } catch (pluginError) {
-                    console.error(`✗ Failed to load plugin ${pluginFile}:`, pluginError.message);
+                });
+                
+                try {
+                    const pluginFiles = fs.readdirSync(pluginPath).filter(file => 
+                        path.extname(file).toLowerCase() === '.js'
+                    );
+                    
+                    for (const pluginFile of pluginFiles) {
+                        try {
+                            const pluginPathFull = path.join(pluginPath, pluginFile);
+                            const plugin = require(pluginPathFull);
+                            
+                            if (typeof plugin === 'function') {
+                                plugin(conn);
+                                console.log(`✓ Loaded plugin: ${pluginFile}`);
+                            }
+                        } catch (pluginError) {
+                            console.error(`✗ Failed to load plugin ${pluginFile}:`, pluginError);
+                        }
+                    }
+                    console.log(`All plugins loaded successfully for ${sanitizedNumber}`);
+                } catch (error) {
+                    console.error(`Error loading plugins for ${sanitizedNumber}:`, error);
                 }
-            }
-        } else {
-            console.log('Plugins directory not found, creating...');
-            fs.mkdirSync(pluginPath, { recursive: true });
-        }
-        
-        console.log(`All plugins loaded successfully for ${sanitizedNumber}`);
-    } catch (error) {
-        console.error(`Error loading plugins for ${sanitizedNumber}:`, error.message);
-    }
-    
-    console.log(`Bot connected for number: ${sanitizedNumber}`);
-    // ... rest of your connection code
-
+                
+                console.log(`Bot connected for number: ${sanitizedNumber}`);
 
                 // Add number to numbers.json if not already present
                 const numbersPath = './numbers.json';
