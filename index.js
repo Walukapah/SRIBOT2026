@@ -23,6 +23,10 @@ const {
     delay
 } = require('@whiskeysockets/baileys');
 
+// GitHub integration libraries
+const { Octokit } = require('@octokit/rest');
+const crypto = require('crypto');
+const moment = require('moment-timezone');
 
 // Load config (assuming config.js exists and has necessary properties)
 const l = console.log
@@ -36,20 +40,230 @@ const { getBuffer, getGroupAdmins, getRandom, h2k, isUrl, Json, runtime, sleep, 
 const config = require('./config');
 const qrcode = require('qrcode-terminal');
 const util = require('util');
-const { sms,downloadMediaMessage } = require('./lib/msg');
+const { sms, downloadMediaMessage } = require('./lib/msg');
 const axios = require('axios');
 const prefix = config.PREFIX
 const ownerNumber = config.OWNER_NUMBER
 const port = process.env.PORT || 8000;
 
+// GitHub Configuration
+const octokit = new Octokit({
+    auth: process.env.GITHUB_TOKEN || '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'
+});
+const owner = process.env.GITHUB_REPO_OWNER || 'Walukapah';
+const repo = process.env.GITHUB_REPO_NAME || 'SRI-DATABASE';
+
 // Multi-number support variables
 const activeSockets = new Map();
 const socketCreationTime = new Map();
-const SESSION_BASE_PATH = './sessions'; // Changed to 'sessions' for consistency
+const SESSION_BASE_PATH = './sessions';
+const otpStore = new Map();
 
 // Ensure session directory exists
 if (!fs.existsSync(SESSION_BASE_PATH)) {
     fs.mkdirSync(SESSION_BASE_PATH, { recursive: true });
+}
+
+// GitHub Helper Functions
+function generateOTP() {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function getSriLankaTimestamp() {
+    return moment().tz('Asia/Colombo').format('YYYY-MM-DD HH:mm:ss');
+}
+
+async function cleanDuplicateFiles(number) {
+    try {
+        const sanitizedNumber = number.replace(/[^0-9]/g, '');
+        const { data } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: 'sessions'
+        });
+
+        const sessionFiles = data.filter(file => 
+            file.name.startsWith(`session_${sanitizedNumber}_`) && file.name.endsWith('.json')
+        ).sort((a, b) => {
+            const timeA = parseInt(a.name.match(/session_\d+_(\d+)\.json/)?.[1] || 0);
+            const timeB = parseInt(b.name.match(/session_\d+_(\d+)\.json/)?.[1] || 0);
+            return timeB - timeA;
+        });
+
+        const configFiles = data.filter(file => 
+            file.name === `config_${sanitizedNumber}.json`
+        );
+
+        if (sessionFiles.length > 1) {
+            for (let i = 1; i < sessionFiles.length; i++) {
+                await octokit.repos.deleteFile({
+                    owner,
+                    repo,
+                    path: `sessions/${sessionFiles[i].name}`,
+                    message: `Delete duplicate session file for ${sanitizedNumber}`,
+                    sha: sessionFiles[i].sha
+                });
+                console.log(`Deleted duplicate session file: ${sessionFiles[i].name}`);
+            }
+        }
+
+        if (configFiles.length > 1) {
+            console.log(`Config file for ${sanitizedNumber} already exists`);
+        }
+    } catch (error) {
+        console.error(`Failed to clean duplicate files for ${number}:`, error);
+    }
+}
+
+async function deleteSessionFromGitHub(number) {
+    try {
+        const sanitizedNumber = number.replace(/[^0-9]/g, '');
+        const { data } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: 'sessions'
+        });
+
+        const sessionFiles = data.filter(file =>
+            file.name.includes(sanitizedNumber) && file.name.endsWith('.json')
+        );
+
+        for (const file of sessionFiles) {
+            await octokit.repos.deleteFile({
+                owner,
+                repo,
+                path: `sessions/${file.name}`,
+                message: `Delete session for ${sanitizedNumber}`,
+                sha: file.sha
+            });
+        }
+    } catch (error) {
+        console.error('Failed to delete session from GitHub:', error);
+    }
+}
+
+async function restoreSession(number) {
+    try {
+        const sanitizedNumber = number.replace(/[^0-9]/g, '');
+        const { data } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: 'sessions'
+        });
+
+        const sessionFiles = data.filter(file =>
+            file.name === `creds_${sanitizedNumber}.json`
+        );
+
+        if (sessionFiles.length === 0) return null;
+
+        const latestSession = sessionFiles[0];
+        const { data: fileData } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: `sessions/${latestSession.name}`
+        });
+
+        const content = Buffer.from(fileData.content, 'base64').toString('utf8');
+        return JSON.parse(content);
+    } catch (error) {
+        console.error('Session restore failed:', error);
+        return null;
+    }
+}
+
+async function saveSessionToGitHub(number, sessionData) {
+    try {
+        const sanitizedNumber = number.replace(/[^0-9]/g, '');
+        const filename = `creds_${sanitizedNumber}.json`;
+        let sha;
+
+        try {
+            const { data } = await octokit.repos.getContent({
+                owner,
+                repo,
+                path: `sessions/${filename}`
+            });
+            sha = data.sha;
+        } catch (error) {
+            // File doesn't exist yet, that's fine
+        }
+
+        await octokit.repos.createOrUpdateFileContents({
+            owner,
+            repo,
+            path: `sessions/${filename}`,
+            message: `Update session for ${sanitizedNumber}`,
+            content: Buffer.from(JSON.stringify(sessionData, null, 2)).toString('base64'),
+            sha
+        });
+        console.log(`Session saved to GitHub for ${sanitizedNumber}`);
+    } catch (error) {
+        console.error('Failed to save session to GitHub:', error);
+    }
+}
+
+async function loadUserConfig(number) {
+    try {
+        const sanitizedNumber = number.replace(/[^0-9]/g, '');
+        const configPath = `sessions/config_${sanitizedNumber}.json`;
+        const { data } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: configPath
+        });
+
+        const content = Buffer.from(data.content, 'base64').toString('utf8');
+        return JSON.parse(content);
+    } catch (error) {
+        console.warn(`No configuration found for ${number}, using default config`);
+        return { ...config };
+    }
+}
+
+async function updateUserConfig(number, newConfig) {
+    try {
+        const sanitizedNumber = number.replace(/[^0-9]/g, '');
+        const configPath = `sessions/config_${sanitizedNumber}.json`;
+        let sha;
+
+        try {
+            const { data } = await octokit.repos.getContent({
+                owner,
+                repo,
+                path: configPath
+            });
+            sha = data.sha;
+        } catch (error) {
+            // File doesn't exist yet
+        }
+
+        await octokit.repos.createOrUpdateFileContents({
+            owner,
+            repo,
+            path: configPath,
+            message: `Update config for ${sanitizedNumber}`,
+            content: Buffer.from(JSON.stringify(newConfig, null, 2)).toString('base64'),
+            sha
+        });
+        console.log(`Updated config for ${sanitizedNumber}`);
+    } catch (error) {
+        console.error('Failed to update config:', error);
+        throw error;
+    }
+}
+
+async function sendOTP(conn, number, otp) {
+    const userJid = jidNormalizedUser(conn.user.id);
+    const message = `*🔐 OTP VERIFICATION*\n\nYour OTP for config update is: *${otp}*\nThis OTP will expire in 5 minutes.\n\n> © ${config.BOT_NAME}`;
+
+    try {
+        await conn.sendMessage(userJid, { text: message });
+        console.log(`OTP ${otp} sent to ${number}`);
+    } catch (error) {
+        console.error(`Failed to send OTP to ${number}:`, error);
+        throw error;
+    }
 }
 
 // Load admin numbers
@@ -70,12 +284,25 @@ function formatMessage(title, content, footer) {
     return `${title}\n\n${content}\n\n${footer}`;
 }
 
-// Multi-number connection function
-async function connectToWAMulti(number, res = null) { // Added res parameter for initial connection response
+// Multi-number connection function (updated with GitHub integration)
+async function connectToWAMulti(number, res = null) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
     const sessionPath = path.join(SESSION_BASE_PATH, `session_${sanitizedNumber}`);
 
     console.log(`Connecting WhatsApp bot for number: ${sanitizedNumber}...`);
+
+    await cleanDuplicateFiles(sanitizedNumber);
+
+    // Try to restore session from GitHub first
+    const restoredCreds = await restoreSession(sanitizedNumber);
+    if (restoredCreds) {
+// නව:
+if (!fs.existsSync(sessionPath)) {
+    fs.mkdirSync(sessionPath, { recursive: true });
+}
+        fs.writeFileSync(path.join(sessionPath, 'creds.json'), JSON.stringify(restoredCreds, null, 2));
+        console.log(`Successfully restored session for ${sanitizedNumber} from GitHub`);
+    }
 
     try {
         const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
@@ -94,6 +321,17 @@ async function connectToWAMulti(number, res = null) { // Added res parameter for
         activeSockets.set(sanitizedNumber, conn);
         socketCreationTime.set(sanitizedNumber, Date.now());
 
+        // GitHub: Save creds to GitHub when updated
+        conn.ev.on('creds.update', async () => {
+    await saveCreds();
+    try {
+        const fileContent = await fs.promises.readFile(path.join(sessionPath, 'creds.json'), { encoding: 'utf8' });
+        await saveSessionToGitHub(sanitizedNumber, JSON.parse(fileContent));
+    } catch (error) {
+        console.error('Failed to read session file:', error);
+    }
+});
+
         conn.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect } = update;
             if (connection === 'close') {
@@ -106,16 +344,16 @@ async function connectToWAMulti(number, res = null) { // Added res parameter for
                 if (shouldReconnect) {
                     await delay(5000);
                     console.log(`Attempting to reconnect ${sanitizedNumber}...`);
-                    connectToWAMulti(number); // Reconnect without passing res
+                    connectToWAMulti(number);
                 } else {
                     console.log(`Logged out from ${sanitizedNumber}, removing session files.`);
-                    await fsExtra.remove(sessionPath); // Remove local session files
+                    await fsExtra.remove(sessionPath);
+                    await deleteSessionFromGitHub(sanitizedNumber);
                 }
             } else if (connection === 'open') {
                 console.log('Installing plugins...');
                 const pluginPath = path.join(__dirname, 'plugins');
                 
-                // Clear require cache to ensure fresh plugin loading
                 Object.keys(require.cache).forEach(key => {
                     if (key.includes(pluginPath)) {
                         delete require.cache[key];
@@ -147,6 +385,14 @@ async function connectToWAMulti(number, res = null) { // Added res parameter for
                 
                 console.log(`Bot connected for number: ${sanitizedNumber}`);
 
+                // Load user config from GitHub
+                try {
+                    const userConfig = await loadUserConfig(sanitizedNumber);
+                    console.log(`Loaded config for ${sanitizedNumber} from GitHub`);
+                } catch (error) {
+                    await updateUserConfig(sanitizedNumber, config);
+                }
+
                 // Add number to numbers.json if not already present
                 const numbersPath = './numbers.json';
                 let storedNumbers = [];
@@ -162,7 +408,7 @@ async function connectToWAMulti(number, res = null) { // Added res parameter for
                 const admins = loadAdmins();
                 const caption = formatMessage(
                     '*Connected Successful ✅*',
-                    `📞 Number: ${sanitizedNumber}\n🩵 Status: Online`,
+                    `📞 Number: ${sanitizedNumber}\n🩵 Status: Online\n💾 Session: Saved to GitHub`,
                     `${config.BOT_NAME}`
                 );
 
@@ -177,14 +423,11 @@ async function connectToWAMulti(number, res = null) { // Added res parameter for
                     }
                 }
 
-                // Send success response to web interface if applicable
                 if (res && !res.headersSent) {
                     res.status(200).send({ status: 'connected', message: 'Bot connected successfully!' });
                 }
             }
         });
-
-        conn.ev.on('creds.update', saveCreds);
 
         // Setup message handlers for this connection
         setupMessageHandlers(conn, sanitizedNumber);
@@ -465,6 +708,95 @@ app.get("/active", (req, res) => {
     });
 });
 
+// Add new API routes for GitHub integration
+app.get("/update-config", async (req, res) => {
+    const { number, config: configString } = req.query;
+    if (!number || !configString) {
+        return res.status(400).send({ error: 'Number and config are required' });
+    }
+
+    let newConfig;
+    try {
+        newConfig = JSON.parse(configString);
+    } catch (error) {
+        return res.status(400).send({ error: 'Invalid config format' });
+    }
+
+    const sanitizedNumber = number.replace(/[^0-9]/g, '');
+    const conn = activeSockets.get(sanitizedNumber);
+    if (!conn) {
+        return res.status(404).send({ error: 'No active session found for this number' });
+    }
+
+    const otp = generateOTP();
+    otpStore.set(sanitizedNumber, { otp, expiry: Date.now() + 300000, newConfig }); // 5 minutes expiry
+
+    try {
+        await sendOTP(conn, sanitizedNumber, otp);
+        res.status(200).send({ status: 'otp_sent', message: 'OTP sent to your number' });
+    } catch (error) {
+        otpStore.delete(sanitizedNumber);
+        res.status(500).send({ error: 'Failed to send OTP' });
+    }
+});
+
+app.get("/verify-otp", async (req, res) => {
+    const { number, otp } = req.query;
+    if (!number || !otp) {
+        return res.status(400).send({ error: 'Number and OTP are required' });
+    }
+
+    const sanitizedNumber = number.replace(/[^0-9]/g, '');
+    const storedData = otpStore.get(sanitizedNumber);
+    if (!storedData) {
+        return res.status(400).send({ error: 'No OTP request found for this number' });
+    }
+
+    if (Date.now() >= storedData.expiry) {
+        otpStore.delete(sanitizedNumber);
+        return res.status(400).send({ error: 'OTP has expired' });
+    }
+
+    if (storedData.otp !== otp) {
+        return res.status(400).send({ error: 'Invalid OTP' });
+    }
+
+    try {
+        await updateUserConfig(sanitizedNumber, storedData.newConfig);
+        otpStore.delete(sanitizedNumber);
+        const conn = activeSockets.get(sanitizedNumber);
+        if (conn) {
+            await conn.sendMessage(jidNormalizedUser(conn.user.id), {
+                text: '*📌 CONFIG UPDATED*\n\nYour configuration has been successfully updated!\n\n> © ' + config.BOT_NAME
+            });
+        }
+        res.status(200).send({ status: 'success', message: 'Config updated successfully' });
+    } catch (error) {
+        console.error('Failed to update config:', error);
+        res.status(500).send({ error: 'Failed to update config' });
+    }
+});
+
+app.get("/github-sessions", async (req, res) => {
+    try {
+        const { data } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: 'sessions'
+        });
+
+        const sessionFiles = data.filter(file => file.name.endsWith('.json'));
+        res.status(200).send({
+            status: 'success',
+            sessions: sessionFiles.map(file => file.name)
+        });
+    } catch (error) {
+        console.error('Failed to fetch GitHub sessions:', error);
+        res.status(500).send({ error: 'Failed to fetch sessions from GitHub' });
+    }
+});
+
+// Update the disconnect function to also delete from GitHub
 app.get("/disconnect", async (req, res) => {
     const { number } = req.query;
     if (!number) {
@@ -476,12 +808,12 @@ app.get("/disconnect", async (req, res) => {
     
     if (socket) {
         try {
-            await socket.logout(); // Log out from WhatsApp
+            await socket.logout();
             activeSockets.delete(sanitizedNumber);
             socketCreationTime.delete(sanitizedNumber);
-            await fsExtra.remove(path.join(SESSION_BASE_PATH, `session_${sanitizedNumber}`)); // Remove local session files
+            await fsExtra.remove(path.join(SESSION_BASE_PATH, `session_${sanitizedNumber}`));
+            await deleteSessionFromGitHub(sanitizedNumber);
             
-            // Remove from numbers.json
             const numbersPath = './numbers.json';
             if (fs.existsSync(numbersPath)) {
                 let storedNumbers = JSON.parse(fs.readFileSync(numbersPath, 'utf8'));
@@ -491,7 +823,7 @@ app.get("/disconnect", async (req, res) => {
 
             res.status(200).send({
                 status: 'disconnected',
-                message: `Disconnected ${sanitizedNumber} and removed session.`
+                message: `Disconnected ${sanitizedNumber} and removed session from GitHub.`
             });
         } catch (error) {
             console.error(`Error disconnecting ${sanitizedNumber}:`, error);
@@ -508,7 +840,7 @@ app.get("/disconnect", async (req, res) => {
     }
 });
 
-app.listen(port, () => console.log(`Multi-Number WhatsApp Bot Server listening on port http://localhost:${port}`));
+app.listen(port, () => console.log(`Multi-Number WhatsApp Bot Server with GitHub integration listening on port http://localhost:${port}`));
 
 // Connect all numbers from numbers.json on startup
 async function connectAllNumbersOnStartup() {
@@ -517,9 +849,9 @@ async function connectAllNumbersOnStartup() {
         if (fs.existsSync(numbersPath)) {
             const numbers = JSON.parse(fs.readFileSync(numbersPath, 'utf8'));
             for (const number of numbers) {
-                if (!activeSockets.has(number)) { // Only connect if not already active
+                if (!activeSockets.has(number)) {
                     await connectToWAMulti(number);
-                    await delay(2000); // Small delay between connections
+                    await delay(2000);
                 }
             }
         }
@@ -528,5 +860,4 @@ async function connectAllNumbersOnStartup() {
     }
 }
 
-// Call the startup connection function
 connectAllNumbersOnStartup();
