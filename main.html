@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Number WhatsApp Bot Manager</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 600px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1, h2 { color: #0056b3; }
+        input[type="text"], button { padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ddd; width: calc(100% - 22px); box-sizing: border-box; }
+        button { background-color: #007bff; color: white; cursor: pointer; border: none; }
+        button:hover { background-color: #0056b3; }
+        .status-message { margin-top: 10px; padding: 10px; border-radius: 4px; }
+        .success { background-color: #d4edda; color: #155724; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+        .info { background-color: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
+        ul { list-style: none; padding: 0; }
+        li { background: #e9ecef; margin-bottom: 5px; padding: 8px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
+        li button { width: auto; margin: 0; padding: 5px 10px; font-size: 0.8em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WhatsApp Bot Manager</h1>
+
+        <div id="status" class="status-message info" style="display: none;"></div>
+
+        <h2>Connect New Number</h2>
+        <input type="text" id="phoneNumber" placeholder="Enter phone number (e.g., 947xxxxxxxx)">
+        <button onclick="connectNumber()">Connect</button>
+
+        <h2>Active Bots (<span id="activeCount">0</span>)</h2>
+        <ul id="activeBotsList">
+            <!-- Active bots will be listed here -->
+        </ul>
+    </div>
+
+    <script>
+        const statusDiv = document.getElementById('status');
+        const activeCountSpan = document.getElementById('activeCount');
+        const activeBotsList = document.getElementById('activeBotsList');
+
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status-message ${type}`;
+            statusDiv.style.display = 'block';
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        async function connectNumber() {
+            const phoneNumber = document.getElementById('phoneNumber').value.trim();
+            if (!phoneNumber) {
+                showStatus('Please enter a phone number.', 'error');
+                return;
+            }
+
+            showStatus('Connecting...', 'info');
+            try {
+                const response = await fetch(`/connect?number=${phoneNumber}`);
+                const data = await response.json();
+                if (response.ok) {
+                    if (data.status === 'connected') {
+                        showStatus('Bot connected successfully!', 'success');
+                    } else if (data.status === 'already_connected') {
+                        showStatus('This number is already connected.', 'info');
+                    } else if (data.code) {
+                        showStatus(`Pairing code: ${data.code}. Scan this code with your WhatsApp app.`, 'info');
+                    }
+                    fetchActiveBots();
+                } else {
+                    showStatus(`Error: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                console.error('Connection error:', error);
+                showStatus('Failed to connect to the server.', 'error');
+            }
+        }
+
+        async function disconnectNumber(number) {
+            if (!confirm(`Are you sure you want to disconnect ${number}?`)) {
+                return;
+            }
+
+            showStatus(`Disconnecting ${number}...`, 'info');
+            try {
+                const response = await fetch(`/disconnect?number=${number}`);
+                const data = await response.json();
+                if (response.ok) {
+                    showStatus(data.message, 'success');
+                    fetchActiveBots();
+                } else {
+                    showStatus(`Error: ${data.message || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                console.error('Disconnection error:', error);
+                showStatus('Failed to connect to the server.', 'error');
+            }
+        }
+
+        async function fetchActiveBots() {
+            try {
+                const response = await fetch('/active');
+                const data = await response.json();
+                activeCountSpan.textContent = data.count;
+                activeBotsList.innerHTML = '';
+                if (data.numbers && data.numbers.length > 0) {
+                    data.numbers.forEach(number => {
+                        const listItem = document.createElement('li');
+                        listItem.innerHTML = `
+                            <span>${number}</span>
+                            <button onclick="disconnectNumber('${number}')">Disconnect</button>
+                        `;
+                        activeBotsList.appendChild(listItem);
+                    });
+                } else {
+                    activeBotsList.innerHTML = '<li>No active bots.</li>';
+                }
+            } catch (error) {
+                console.error('Error fetching active bots:', error);
+                activeCountSpan.textContent = 'Error';
+                activeBotsList.innerHTML = '<li>Failed to load active bots.</li>';
+            }
+        }
+
+        // Fetch active bots on page load
+        document.addEventListener('DOMContentLoaded', fetchActiveBots);
+    </script>
+</body>
+</html>
