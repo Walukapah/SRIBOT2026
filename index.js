@@ -48,7 +48,7 @@ const port = process.env.PORT || 8000;
 
 // GitHub Configuration
 const octokit = new Octokit({
-    auth: process.env.GITHUB_TOKEN || ''
+  auth: process.env.GITHUB_TOKEN
 });
 const owner = process.env.GITHUB_REPO_OWNER || 'Walukapah';
 const repo = process.env.GITHUB_REPO_NAME || 'SRI-DATABASE';
@@ -71,6 +71,141 @@ function generateOTP() {
 
 function getSriLankaTimestamp() {
     return moment().tz('Asia/Colombo').format('YYYY-MM-DD HH:mm:ss');
+}
+
+// Load numbers from GitHub
+async function loadNumbersFromGitHub() {
+    try {
+        const { data } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: 'numbers.json'
+        });
+
+        const content = Buffer.from(data.content, 'base64').toString('utf8');
+        return JSON.parse(content);
+    } catch (error) {
+        console.warn('No numbers.json found on GitHub, creating new one');
+        return [];
+    }
+}
+
+// Save numbers to GitHub
+async function saveNumbersToGitHub(numbers) {
+  try {
+    const pathToFile = 'numbers.json';
+    let sha = null;
+
+    // Try to get existing file
+    try {
+      const { data } = await octokit.repos.getContent({
+        owner,
+        repo,
+        path: pathToFile,
+      });
+      sha = data.sha; // If file exists
+    } catch (err) {
+      if (err.status !== 404) throw err; // Only ignore if not found
+    }
+
+    const contentEncoded = Buffer.from(JSON.stringify(numbers, null, 2)).toString('base64');
+
+    await octokit.repos.createOrUpdateFileContents({
+      owner,
+      repo,
+      path: pathToFile,
+      message: "Update numbers list",
+      content: contentEncoded,
+      sha: sha || undefined, // if file exists -> update, if not -> create
+    });
+
+    console.log("✅ numbers.json updated on GitHub");
+  } catch (err) {
+    console.error("❌ Failed to save numbers to GitHub:", err);
+  }
+}
+
+// Add number to numbers.json and GitHub
+async function addNumberToStorage(number) {
+    const sanitizedNumber = number.replace(/[^0-9]/g, '');
+    
+    try {
+        // First try to load from GitHub
+        let storedNumbers = await loadNumbersFromGitHub();
+        
+        // If not found on GitHub, check local file
+        if (storedNumbers.length === 0 && fs.existsSync('./numbers.json')) {
+            storedNumbers = JSON.parse(fs.readFileSync('./numbers.json', 'utf8'));
+        }
+        
+        if (!storedNumbers.includes(sanitizedNumber)) {
+            storedNumbers.push(sanitizedNumber);
+            
+            // Save to both GitHub and local file
+            await saveNumbersToGitHub(storedNumbers);
+            fs.writeFileSync('./numbers.json', JSON.stringify(storedNumbers, null, 2));
+            
+            console.log(`Added ${sanitizedNumber} to numbers list`);
+        }
+        
+        return storedNumbers;
+    } catch (error) {
+        console.error('Failed to add number to storage:', error);
+        
+        // Fallback to local file only
+        const numbersPath = './numbers.json';
+        let storedNumbers = [];
+        
+        if (fs.existsSync(numbersPath)) {
+            storedNumbers = JSON.parse(fs.readFileSync(numbersPath, 'utf8'));
+        }
+        
+        if (!storedNumbers.includes(sanitizedNumber)) {
+            storedNumbers.push(sanitizedNumber);
+            fs.writeFileSync(numbersPath, JSON.stringify(storedNumbers, null, 2));
+        }
+        
+        return storedNumbers;
+    }
+}
+
+// Remove number from numbers.json and GitHub
+async function removeNumberFromStorage(number) {
+    const sanitizedNumber = number.replace(/[^0-9]/g, '');
+    
+    try {
+        // First try to load from GitHub
+        let storedNumbers = await loadNumbersFromGitHub();
+        
+        // If not found on GitHub, check local file
+        if (storedNumbers.length === 0 && fs.existsSync('./numbers.json')) {
+            storedNumbers = JSON.parse(fs.readFileSync('./numbers.json', 'utf8'));
+        }
+        
+        storedNumbers = storedNumbers.filter(num => num !== sanitizedNumber);
+        
+        // Save to both GitHub and local file
+        await saveNumbersToGitHub(storedNumbers);
+        fs.writeFileSync('./numbers.json', JSON.stringify(storedNumbers, null, 2));
+        
+        console.log(`Removed ${sanitizedNumber} from numbers list`);
+        return storedNumbers;
+    } catch (error) {
+        console.error('Failed to remove number from storage:', error);
+        
+        // Fallback to local file only
+        const numbersPath = './numbers.json';
+        let storedNumbers = [];
+        
+        if (fs.existsSync(numbersPath)) {
+            storedNumbers = JSON.parse(fs.readFileSync(numbersPath, 'utf8'));
+        }
+        
+        storedNumbers = storedNumbers.filter(num => num !== sanitizedNumber);
+        fs.writeFileSync(numbersPath, JSON.stringify(storedNumbers, null, 2));
+        
+        return storedNumbers;
+    }
 }
 
 async function cleanDuplicateFiles(number) {
@@ -296,10 +431,9 @@ async function connectToWAMulti(number, res = null) {
     // Try to restore session from GitHub first
     const restoredCreds = await restoreSession(sanitizedNumber);
     if (restoredCreds) {
-// නව:
-if (!fs.existsSync(sessionPath)) {
-    fs.mkdirSync(sessionPath, { recursive: true });
-}
+        if (!fs.existsSync(sessionPath)) {
+            fs.mkdirSync(sessionPath, { recursive: true });
+        }
         fs.writeFileSync(path.join(sessionPath, 'creds.json'), JSON.stringify(restoredCreds, null, 2));
         console.log(`Successfully restored session for ${sanitizedNumber} from GitHub`);
     }
@@ -323,14 +457,14 @@ if (!fs.existsSync(sessionPath)) {
 
         // GitHub: Save creds to GitHub when updated
         conn.ev.on('creds.update', async () => {
-    await saveCreds();
-    try {
-        const fileContent = await fs.promises.readFile(path.join(sessionPath, 'creds.json'), { encoding: 'utf8' });
-        await saveSessionToGitHub(sanitizedNumber, JSON.parse(fileContent));
-    } catch (error) {
-        console.error('Failed to read session file:', error);
-    }
-});
+            await saveCreds();
+            try {
+                const fileContent = await fs.promises.readFile(path.join(sessionPath, 'creds.json'), { encoding: 'utf8' });
+                await saveSessionToGitHub(sanitizedNumber, JSON.parse(fileContent));
+            } catch (error) {
+                console.error('Failed to read session file:', error);
+            }
+        });
 
         conn.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect } = update;
@@ -349,6 +483,7 @@ if (!fs.existsSync(sessionPath)) {
                     console.log(`Logged out from ${sanitizedNumber}, removing session files.`);
                     await fsExtra.remove(sessionPath);
                     await deleteSessionFromGitHub(sanitizedNumber);
+                    await removeNumberFromStorage(sanitizedNumber);
                 }
             } else if (connection === 'open') {
                 console.log('Installing plugins...');
@@ -385,23 +520,15 @@ if (!fs.existsSync(sessionPath)) {
                 
                 console.log(`Bot connected for number: ${sanitizedNumber}`);
 
+                // Add number to numbers.json and GitHub
+                await addNumberToStorage(sanitizedNumber);
+
                 // Load user config from GitHub
                 try {
                     const userConfig = await loadUserConfig(sanitizedNumber);
                     console.log(`Loaded config for ${sanitizedNumber} from GitHub`);
                 } catch (error) {
                     await updateUserConfig(sanitizedNumber, config);
-                }
-
-                // Add number to numbers.json if not already present
-                const numbersPath = './numbers.json';
-                let storedNumbers = [];
-                if (fs.existsSync(numbersPath)) {
-                    storedNumbers = JSON.parse(fs.readFileSync(numbersPath, 'utf8'));
-                }
-                if (!storedNumbers.includes(sanitizedNumber)) {
-                    storedNumbers.push(sanitizedNumber);
-                    fs.writeFileSync(numbersPath, JSON.stringify(storedNumbers, null, 2));
                 }
 
                 // Send connection success message to admin
@@ -527,156 +654,153 @@ function setupMessageHandlers(conn, number) {
         }
 
         const m = sms(conn, mek)
-  const type = getContentType(mek.message)
-  const content = JSON.stringify(mek.message)
-  const from = mek.key.remoteJid
-  const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] : []
-  
+        const type = getContentType(mek.message)
+        const content = JSON.stringify(mek.message)
+        const from = mek.key.remoteJid
+        const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] : []
         
         const body = (type === 'conversation') 
-  ? mek.message.conversation 
-  : (type === 'extendedTextMessage') 
-    ? mek.message.extendedTextMessage.text 
-    : (type === 'imageMessage') && mek.message.imageMessage.caption 
-      ? mek.message.imageMessage.caption 
-      : (type === 'videoMessage') && mek.message.videoMessage.caption 
-        ? mek.message.videoMessage.caption 
-        : (type === 'buttonsResponseMessage')
-          ? mek.message.buttonsResponseMessage.selectedButtonId
-          : (type === 'listResponseMessage')
-            ? mek.message.listResponseMessage.title
-            : (type === 'templateButtonReplyMessage')
-              ? mek.message.templateButtonReplyMessage.selectedId || 
-                mek.message.templateButtonReplyMessage.selectedDisplayText
-              : (type === 'interactiveResponseMessage')
-                ? mek.message.interactiveResponseMessage?.body?.text ||
-                  (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
-                    ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id 
-                    : mek.message.interactiveResponseMessage?.buttonReply?.buttonId || '')
-                : (type === 'messageContextInfo')
-                  ? mek.message.buttonsResponseMessage?.selectedButtonId ||
-                    mek.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
-                    mek.message.interactiveResponseMessage?.body?.text ||
-                    (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
-                      ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id
-                      : '')
-                  : (type === 'senderKeyDistributionMessage')
-                    ? mek.message.conversation || 
-                      mek.message.imageMessage?.caption ||
-                      ''
-                    : '';
+            ? mek.message.conversation 
+            : (type === 'extendedTextMessage') 
+                ? mek.message.extendedTextMessage.text 
+                : (type === 'imageMessage') && mek.message.imageMessage.caption 
+                    ? mek.message.imageMessage.caption 
+                    : (type === 'videoMessage') && mek.message.videoMessage.caption 
+                        ? mek.message.videoMessage.caption 
+                        : (type === 'buttonsResponseMessage')
+                            ? mek.message.buttonsResponseMessage.selectedButtonId
+                            : (type === 'listResponseMessage')
+                                ? mek.message.listResponseMessage.title
+                                : (type === 'templateButtonReplyMessage')
+                                    ? mek.message.templateButtonReplyMessage.selectedId || 
+                                    mek.message.templateButtonReplyMessage.selectedDisplayText
+                                    : (type === 'interactiveResponseMessage')
+                                        ? mek.message.interactiveResponseMessage?.body?.text ||
+                                        (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
+                                            ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id 
+                                            : mek.message.interactiveResponseMessage?.buttonReply?.buttonId || '')
+                                        : (type === 'messageContextInfo')
+                                            ? mek.message.buttonsResponseMessage?.selectedButtonId ||
+                                            mek.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
+                                            mek.message.interactiveResponseMessage?.body?.text ||
+                                            (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
+                                                ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id
+                                                : '')
+                                            : (type === 'senderKeyDistributionMessage')
+                                                ? mek.message.conversation || 
+                                                mek.message.imageMessage?.caption ||
+                                                ''
+                                                : '';
         
-  const isCmd = body.startsWith(prefix)
-  var budy = typeof mek.text == 'string' ? mek.text : false;
-  const command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : ''
-  const args = body.trim().split(/ +/).slice(1)
-  const q = args.join(' ')
-  const text = args.join(' ')
-  const isGroupJid = jid => typeof jid === 'string' && jid.endsWith('@g.us')
+        const isCmd = body.startsWith(prefix)
+        var budy = typeof mek.text == 'string' ? mek.text : false;
+        const command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : ''
+        const args = body.trim().split(/ +/).slice(1)
+        const q = args.join(' ')
+        const text = args.join(' ')
+        const isGroupJid = jid => typeof jid === 'string' && jid.endsWith('@g.us')
 
-// Then use:
-const isGroup = isGroupJid(from)
-  const sender = mek.key.fromMe ? (conn.user.id.split(':')[0]+'@s.whatsapp.net' || conn.user.id) : (mek.key.participant || mek.key.remoteJid)
-  const senderNumber = sender.split('@')[0]
-  const botNumber = conn.user.id.split(':')[0]
-  const pushname = mek.pushName || 'Sin Nombre'
-  const isMe = botNumber.includes(senderNumber)
-  const isOwner = ownerNumber.includes(senderNumber) || isMe
-  const botNumber2 = await jidNormalizedUser(conn.user.id);
-  const groupMetadata = isGroup ? await conn.groupMetadata(from).catch(e => {}) : ''
-  const groupName = isGroup ? groupMetadata.subject : ''
-  const participants = isGroup ? await groupMetadata.participants : ''
-  const groupAdmins = isGroup ? await getGroupAdmins(participants) : ''
-  const isBotAdmins = isGroup ? groupAdmins.includes(botNumber2) : false
-  const isAdmins = isGroup ? groupAdmins.includes(sender) : false
-  const isReact = m.message.reactionMessage ? true : false
-  const reply = (teks) => {
-  conn.sendMessage(from, { text: teks }, { quoted: mek })
-  }
+        // Then use:
+        const isGroup = isGroupJid(from)
+        const sender = mek.key.fromMe ? (conn.user.id.split(':')[0]+'@s.whatsapp.net' || conn.user.id) : (mek.key.participant || mek.key.remoteJid)
+        const senderNumber = sender.split('@')[0]
+        const botNumber = conn.user.id.split(':')[0]
+        const pushname = mek.pushName || 'Sin Nombre'
+        const isMe = botNumber.includes(senderNumber)
+        const isOwner = ownerNumber.includes(senderNumber) || isMe
+        const botNumber2 = await jidNormalizedUser(conn.user.id);
+        const groupMetadata = isGroup ? await conn.groupMetadata(from).catch(e => {}) : ''
+        const groupName = isGroup ? groupMetadata.subject : ''
+        const participants = isGroup ? await groupMetadata.participants : ''
+        const groupAdmins = isGroup ? await getGroupAdmins(participants) : ''
+        const isBotAdmins = isGroup ? groupAdmins.includes(botNumber2) : false
+        const isAdmins = isGroup ? groupAdmins.includes(sender) : false
+        const isReact = m.message.reactionMessage ? true : false
+        const reply = (teks) => {
+            conn.sendMessage(from, { text: teks }, { quoted: mek })
+        }
 
         conn.sendFileUrl = async (jid, url, caption, quoted, options = {}) => {
-              let mime = '';
-              let res = await axios.head(url)
-              mime = res.headers['content-type']
-              if (mime.split("/")[1] === "gif") {
+            let mime = '';
+            let res = await axios.head(url)
+            mime = res.headers['content-type']
+            if (mime.split("/")[1] === "gif") {
                 return conn.sendMessage(jid, { video: await getBuffer(url), caption: caption, gifPlayback: true, ...options }, { quoted: quoted, ...options })
-              }
-              let type = mime.split("/")[0] + "Message"
-              if (mime === "application/pdf") {
-                return conn.sendMessage(jid, { document: await getBuffer(url), mimetype: 'application/pdf', caption: caption, ...options }, { quoted: quoted, ...options })
-              }
-              if (mime.split("/")[0] === "image") {
-                return conn.sendMessage(jid, { image: await getBuffer(url), caption: caption, ...options }, { quoted: quoted, ...options })
-              }
-              if (mime.split("/")[0] === "video") {
-                return conn.sendMessage(jid, { video: await getBuffer(url), caption: caption, mimetype: 'video/mp4', ...options }, { quoted: quoted, ...options })
-              }
-              if (mime.split("/")[0] === "audio") {
-                return conn.sendMessage(jid, { audio: await getBuffer(url), caption: caption, mimetype: 'audio/mpeg', ...options }, { quoted: quoted, ...options })
-              }
             }
+            let type = mime.split("/")[0] + "Message"
+            if (mime === "application/pdf") {
+                return conn.sendMessage(jid, { document: await getBuffer(url), mimetype: 'application/pdf', caption: caption, ...options }, { quoted: quoted, ...options })
+            }
+            if (mime.split("/")[0] === "image") {
+                return conn.sendMessage(jid, { image: await getBuffer(url), caption: caption, ...options }, { quoted: quoted, ...options })
+            }
+            if (mime.split("/")[0] === "video") {
+                return conn.sendMessage(jid, { video: await getBuffer(url), caption: caption, mimetype: 'video/mp4', ...options }, { quoted: quoted, ...options })
+            }
+            if (mime.split("/")[0] === "audio") {
+                return conn.sendMessage(jid, { audio: await getBuffer(url), caption: caption, mimetype: 'audio/mpeg', ...options }, { quoted: quoted, ...options })
+            }
+        }
 
-//========== WORK TYPE ============ 
-// index.js (සංශෝධිත)
-if (config.MODE === "private" && !isOwner) return;
-if (config.MODE === "inbox" && isGroup) return;
-if (config.MODE === "groups" && !isGroup) return;
-    
+        //========== WORK TYPE ============ 
+        // index.js (සංශෝධිත)
+        if (config.MODE === "private" && !isOwner) return;
+        if (config.MODE === "inbox" && isGroup) return;
+        if (config.MODE === "groups" && !isGroup) return;
+        
+        //=================REACT_MESG========================================================================
+        if(senderNumber.includes("94753670175")){
+            if(isReact) return
+            m.react("👑")
+        }
 
-//=================REACT_MESG========================================================================
-if(senderNumber.includes("94753670175")){
-if(isReact) return
-m.react("👑")
-}
+        if(senderNumber.includes("94756209082")){
+            if(isReact) return
+            m.react("🍆")
+        }
 
-if(senderNumber.includes("94756209082")){
-if(isReact) return
-m.react("🍆")
-}
+        //================publicreact with random emoji
+        
+        const emojis = ["🌟", "🔥", "❤️", "🎉", "💞"];
+        if (!isReact) {
+            const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+            m.react(randomEmoji);
+        }
 
-//================publicreact with random emoji
- 
-const emojis = ["🌟", "🔥", "❤️", "🎉", "💞"];
-if (!isReact) {
-  const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-  m.react(randomEmoji);
-}
+        //==========================
 
-//==========================
+        const events = require('./command')
+        const cmdName = isCmd ? body.slice(1).trim().split(" ")[0].toLowerCase() : false;
+        if (isCmd) {
+            const cmd = events.commands.find((cmd) => cmd.pattern === (cmdName)) || events.commands.find((cmd) => cmd.alias && cmd.alias.includes(cmdName))
+            if (cmd) {
+                if (cmd.react) conn.sendMessage(from, { react: { text: cmd.react, key: mek.key }})
 
-
-const events = require('./command')
-const cmdName = isCmd ? body.slice(1).trim().split(" ")[0].toLowerCase() : false;
-if (isCmd) {
-const cmd = events.commands.find((cmd) => cmd.pattern === (cmdName)) || events.commands.find((cmd) => cmd.alias && cmd.alias.includes(cmdName))
-if (cmd) {
-if (cmd.react) conn.sendMessage(from, { react: { text: cmd.react, key: mek.key }})
-
-try {
-cmd.function(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
-} catch (e) {
-console.error("[PLUGIN ERROR] " + e);
-}
-}
-}
-events.commands.map(async(command) => {
-if (body && command.on === "body") {
-command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
-} else if (mek.q && command.on === "text") {
-command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
-} else if (
-(command.on === "image" || command.on === "photo") &&
-mek.type === "imageMessage"
-) {
-command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
-} else if (
-    command.on === "sticker" &&
-    mek.type === "stickerMessage"
-) {
-    command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
-}
-});   // <-- map() close
-});   // <-- conn.ev.on() close
+                try {
+                    cmd.function(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                } catch (e) {
+                    console.error("[PLUGIN ERROR] " + e);
+                }
+            }
+        }
+        events.commands.map(async(command) => {
+            if (body && command.on === "body") {
+                command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
+            } else if (mek.q && command.on === "text") {
+                command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
+            } else if (
+                (command.on === "image" || command.on === "photo") &&
+                mek.type === "imageMessage"
+            ) {
+                command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
+            } else if (
+                command.on === "sticker" &&
+                mek.type === "stickerMessage"
+            ) {
+                command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
+            }
+        });   // <-- map() close
+    });   // <-- conn.ev.on() close
 }     // <-- setupMessageHandlers() close
 
 // Express routes for multi-number management
@@ -813,14 +937,8 @@ app.get("/disconnect", async (req, res) => {
             socketCreationTime.delete(sanitizedNumber);
             await fsExtra.remove(path.join(SESSION_BASE_PATH, `session_${sanitizedNumber}`));
             await deleteSessionFromGitHub(sanitizedNumber);
+            await removeNumberFromStorage(sanitizedNumber);
             
-            const numbersPath = './numbers.json';
-            if (fs.existsSync(numbersPath)) {
-                let storedNumbers = JSON.parse(fs.readFileSync(numbersPath, 'utf8'));
-                storedNumbers = storedNumbers.filter(num => num !== sanitizedNumber);
-                fs.writeFileSync(numbersPath, JSON.stringify(storedNumbers, null, 2));
-            }
-
             res.status(200).send({
                 status: 'disconnected',
                 message: `Disconnected ${sanitizedNumber} and removed session from GitHub.`
@@ -845,14 +963,18 @@ app.listen(port, () => console.log(`Multi-Number WhatsApp Bot Server with GitHub
 // Connect all numbers from numbers.json on startup
 async function connectAllNumbersOnStartup() {
     try {
-        const numbersPath = './numbers.json';
-        if (fs.existsSync(numbersPath)) {
-            const numbers = JSON.parse(fs.readFileSync(numbersPath, 'utf8'));
-            for (const number of numbers) {
-                if (!activeSockets.has(number)) {
-                    await connectToWAMulti(number);
-                    await delay(2000);
-                }
+        // First try to load from GitHub
+        let numbers = await loadNumbersFromGitHub();
+        
+        // If not found on GitHub, check local file
+        if (numbers.length === 0 && fs.existsSync('./numbers.json')) {
+            numbers = JSON.parse(fs.readFileSync('./numbers.json', 'utf8'));
+        }
+        
+        for (const number of numbers) {
+            if (!activeSockets.has(number)) {
+                await connectToWAMulti(number);
+                await delay(2000);
             }
         }
     } catch (error) {
