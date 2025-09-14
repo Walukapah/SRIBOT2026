@@ -760,13 +760,13 @@ function setupMessageHandlers(conn, number) {
         }
 
         //================publicreact with random emoji
-        
+        /**
         const emojis = ["🌟", "🔥", "❤️", "🎉", "💞"];
         if (!isReact) {
             const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
             m.react(randomEmoji);
         }
-
+**/
         //==========================
 
         const events = require('./command')
