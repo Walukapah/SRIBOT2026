@@ -9,7 +9,8 @@ RUN apk add --no-cache \
     jpeg-dev \
     pango-dev \
     giflib-dev \
-    git
+    git \
+    ffmpeg
 
 WORKDIR /app
 COPY package*.json ./
