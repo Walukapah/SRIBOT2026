@@ -105,7 +105,7 @@ cmd({
                         downloadUrl = audio128k.url;
                         type = { 
                             audio: { url: downloadUrl }, 
-                            mimetype: "audio/mp4"
+                            mimetype: "audio/mpeg"
                         };
                         break;
                     case "1.2":
@@ -114,7 +114,7 @@ cmd({
                         downloadUrl = audio48k.url;
                         type = { 
                             audio: { url: downloadUrl }, 
-                            mimetype: "audio/mp4"
+                            mimetype: "audio/mpeg"
                         };
                         break;
                     
