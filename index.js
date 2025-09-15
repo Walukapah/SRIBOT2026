@@ -657,40 +657,50 @@ function setupMessageHandlers(conn, number) {
         const type = getContentType(mek.message)
         const content = JSON.stringify(mek.message)
         const from = mek.key.remoteJid
-        const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] : []
-        
-        const body = (type === 'conversation') 
-            ? mek.message.conversation 
-            : (type === 'extendedTextMessage') 
-                ? mek.message.extendedTextMessage.text 
-                : (type === 'imageMessage') && mek.message.imageMessage.caption 
-                    ? mek.message.imageMessage.caption 
-                    : (type === 'videoMessage') && mek.message.videoMessage.caption 
-                        ? mek.message.videoMessage.caption 
-                        : (type === 'buttonsResponseMessage')
-                            ? mek.message.buttonsResponseMessage.selectedButtonId
-                            : (type === 'listResponseMessage')
-                                ? mek.message.listResponseMessage.title
-                                : (type === 'templateButtonReplyMessage')
-                                    ? mek.message.templateButtonReplyMessage.selectedId || 
-                                    mek.message.templateButtonReplyMessage.selectedDisplayText
-                                    : (type === 'interactiveResponseMessage')
-                                        ? mek.message.interactiveResponseMessage?.body?.text ||
-                                        (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
-                                            ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id 
-                                            : mek.message.interactiveResponseMessage?.buttonReply?.buttonId || '')
-                                        : (type === 'messageContextInfo')
-                                            ? mek.message.buttonsResponseMessage?.selectedButtonId ||
-                                            mek.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
-                                            mek.message.interactiveResponseMessage?.body?.text ||
-                                            (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
-                                                ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id
-                                                : '')
-                                            : (type === 'senderKeyDistributionMessage')
-                                                ? mek.message.conversation || 
-                                                mek.message.imageMessage?.caption ||
-                                                ''
-                                                : '';
+        // Quoted message detect
+const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null 
+    ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] 
+    : [];
+
+// Body parser with Button/List/Template/Interactive support
+const body = 
+    (type === 'conversation') 
+        ? mek.message.conversation 
+    : (type === 'extendedTextMessage') 
+        ? mek.message.extendedTextMessage.text 
+    : (type === 'imageMessage' && mek.message.imageMessage.caption) 
+        ? mek.message.imageMessage.caption 
+    : (type === 'videoMessage' && mek.message.videoMessage.caption) 
+        ? mek.message.videoMessage.caption 
+    : (type === 'buttonsResponseMessage') 
+        ? mek.message.buttonsResponseMessage.selectedButtonId 
+    : (type === 'listResponseMessage') 
+        ? mek.message.listResponseMessage.title || mek.message.listResponseMessage.singleSelectReply?.selectedRowId 
+    : (type === 'templateButtonReplyMessage') 
+        ? mek.message.templateButtonReplyMessage.selectedId || mek.message.templateButtonReplyMessage.selectedDisplayText 
+    : (type === 'interactiveResponseMessage') 
+        ? (
+            mek.message.interactiveResponseMessage?.body?.text ||
+            (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
+                ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id 
+                : mek.message.interactiveResponseMessage?.buttonReply?.buttonId || '')
+        )
+    : (type === 'messageContextInfo')
+        ? (
+            mek.message.buttonsResponseMessage?.selectedButtonId ||
+            mek.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
+            mek.message.interactiveResponseMessage?.body?.text ||
+            (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
+                ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id
+                : '')
+        )
+    : (type === 'senderKeyDistributionMessage')
+        ? (
+            mek.message.conversation || 
+            mek.message.imageMessage?.caption || 
+            ''
+        )
+    : '';
         
         const isCmd = body.startsWith(prefix)
         var budy = typeof mek.text == 'string' ? mek.text : false;
