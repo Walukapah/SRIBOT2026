@@ -1,84 +1,72 @@
 const config = require("../config");
 const { cmd } = require("../command");
+const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 
 cmd({
-  on: "message.delete",
+  on: "messages.upsert",
   filename: __filename
-}, async (client, message) => {
+}, async (client, update) => {
   try {
-    if (!config.ANTI_DELETE) return; // Anti-delete off නම් return
+    if (!config.ANTI_DELETE) return;
 
-    const deleted = message.msg;
-    if (!deleted) return;
+    const m = update.messages?.[0];
+    if (!m?.message?.protocolMessage) return;
 
-    let user = message.participant || message.key.participant || message.key.remoteJid;
+    const prot = m.message.protocolMessage;
 
-    // Text
-    if (deleted.conversation || deleted.extendedTextMessage?.text) {
-      let text = deleted.conversation || deleted.extendedTextMessage.text;
-      await client.sendMessage(message.key.remoteJid, {
-        text: `🚨 *Anti Delete Active!* \n\n👤 User: @${user.split("@")[0]} \n\n📝 Message:\n${text}`,
+    // Check if revoke (deleted)
+    if (prot.type !== "REVOKE") return;
+
+    const chat = prot.key.remoteJid;
+    const msgId = prot.key.id;
+    const user = prot.key.participant || m.key.participant || m.key.remoteJid;
+
+    // get original deleted msg
+    const deletedMsg = await client.loadMessage(chat, msgId);
+    if (!deletedMsg?.message) return;
+
+    const msg = deletedMsg.message;
+
+    // ---- Text
+    if (msg.conversation || msg.extendedTextMessage?.text) {
+      const text = msg.conversation || msg.extendedTextMessage.text;
+      await client.sendMessage(chat, {
+        text: `🚨 *Anti Delete Active!*\n👤 @${user.split("@")[0]} deleted:\n\n${text}`,
         mentions: [user]
       });
     }
-
-    // Image
-    else if (deleted.imageMessage) {
-      let buffer = await client.downloadMediaMessage(message);
-      await client.sendMessage(message.key.remoteJid, {
-        image: buffer,
-        caption: `🚨 *Anti Delete Active!* \n\n👤 User: @${user.split("@")[0]}`,
-        mentions: [user]
-      });
+    // ---- Media (image/video/audio/doc/sticker)
+    else {
+      const buffer = await downloadMediaMessage(deletedMsg, "buffer", {}, { reuploadRequest: client.updateMediaMessage });
+      if (msg.imageMessage) {
+        await client.sendMessage(chat, {
+          image: buffer,
+          caption: `🚨 *Anti Delete Active!*\n👤 @${user.split("@")[0]} tried to delete this.`,
+          mentions: [user]
+        });
+      } else if (msg.videoMessage) {
+        await client.sendMessage(chat, {
+          video: buffer,
+          caption: `🚨 *Anti Delete Active!*\n👤 @${user.split("@")[0]} tried to delete this.`,
+          mentions: [user]
+        });
+      } else if (msg.audioMessage) {
+        await client.sendMessage(chat, {
+          audio: buffer,
+          mimetype: "audio/mp4",
+          ptt: msg.audioMessage.ptt || false
+        }, { quoted: m });
+      } else if (msg.stickerMessage) {
+        await client.sendMessage(chat, { sticker: buffer }, { quoted: m });
+      } else if (msg.documentMessage) {
+        await client.sendMessage(chat, {
+          document: buffer,
+          mimetype: msg.documentMessage.mimetype,
+          fileName: msg.documentMessage.fileName || "document"
+        });
+      }
     }
 
-    // Video
-    else if (deleted.videoMessage) {
-      let buffer = await client.downloadMediaMessage(message);
-      await client.sendMessage(message.key.remoteJid, {
-        video: buffer,
-        caption: `🚨 *Anti Delete Active!* \n\n👤 User: @${user.split("@")[0]}`,
-        mentions: [user]
-      });
-    }
-
-    // Audio
-    else if (deleted.audioMessage) {
-      let buffer = await client.downloadMediaMessage(message);
-      await client.sendMessage(message.key.remoteJid, {
-        audio: buffer,
-        mimetype: "audio/mp4",
-        ptt: deleted.audioMessage.ptt || false
-      });
-      await client.sendMessage(message.key.remoteJid, {
-        text: `🚨 *Anti Delete Active!* \n\n👤 User: @${user.split("@")[0]}`,
-        mentions: [user]
-      });
-    }
-
-    // Sticker
-    else if (deleted.stickerMessage) {
-      let buffer = await client.downloadMediaMessage(message);
-      await client.sendMessage(message.key.remoteJid, { sticker: buffer });
-      await client.sendMessage(message.key.remoteJid, {
-        text: `🚨 *Anti Delete Active!* \n\n👤 User: @${user.split("@")[0]}`,
-        mentions: [user]
-      });
-    }
-
-    // Document
-    else if (deleted.documentMessage) {
-      let buffer = await client.downloadMediaMessage(message);
-      await client.sendMessage(message.key.remoteJid, {
-        document: buffer,
-        mimetype: deleted.documentMessage.mimetype,
-        fileName: deleted.documentMessage.fileName || "document"
-      });
-      await client.sendMessage(message.key.remoteJid, {
-        text: `🚨 *Anti Delete Active!* \n\n👤 User: @${user.split("@")[0]}`,
-        mentions: [user]
-      });
-    }
   } catch (e) {
     console.error("Anti Delete Error:", e);
   }
