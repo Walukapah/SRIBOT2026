@@ -3,8 +3,8 @@ const { cmd } = require("../command");
 
 cmd({
   pattern: "vv",
-  alias: ["viewonce", 'vv2'],
-  react: '🐳',
+  alias: ["viewonce", "vv2"],
+  react: "🐳",
   desc: "Owner retrieve quoted message back to user",
   category: "owner",
   filename: __filename
@@ -16,14 +16,15 @@ cmd({
       }, { quoted: message });
     }
 
-    if (!match.quoted) {
+    if (!message.quoted) {
       return await client.sendMessage(from, {
         text: "*🍁 Please reply to a view once message!*"
       }, { quoted: message });
     }
 
-    const buffer = await match.quoted.download();
-    const mtype = match.quoted.mtype;
+    const quoted = message.quoted;
+    const buffer = await quoted.download();
+    const mtype = quoted.mtype;
     const options = { quoted: message };
 
     let messageContent = {};
@@ -31,22 +32,22 @@ cmd({
       case "imageMessage":
         messageContent = {
           image: buffer,
-          caption: match.quoted.text || '',
-          mimetype: match.quoted.mimetype || "image/jpeg"
+          caption: quoted.text || "",
+          mimetype: quoted.mimetype || "image/jpeg"
         };
         break;
       case "videoMessage":
         messageContent = {
           video: buffer,
-          caption: match.quoted.text || '',
-          mimetype: match.quoted.mimetype || "video/mp4"
+          caption: quoted.text || "",
+          mimetype: quoted.mimetype || "video/mp4"
         };
         break;
       case "audioMessage":
         messageContent = {
           audio: buffer,
           mimetype: "audio/mp4",
-          ptt: match.quoted.ptt || false
+          ptt: quoted.ptt || false
         };
         break;
       default:
