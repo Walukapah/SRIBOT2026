@@ -1,61 +1,82 @@
-const config = require('../config');
-const { cmd } = require('../command');
+const { cmd } = require("../command");
+const config = require("../config");
+const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 
 cmd({
-  on: "body"
-},    
-async (conn, mek, m, { from, isGroup }) => {       
+  on: "body",
+  filename: __filename,
+}, async (client, message, m, { from, isGroup }) => {
+  try {
+    if (config.ANTI_DELETE !== "true") return;
 
-    try {
-        if (config.ANTI_DELETE !== 'true') return;
+    // protocolMessage check
+    if (!message.message?.protocolMessage) return;
+    const prot = message.message.protocolMessage;
+    if (prot.type !== 0) return; // 0 = REVOKE
 
-        if (!mek.message?.protocolMessage) return;
+    const chat = prot.key.remoteJid;
+    const user = prot.key.participant || message.key.participant || message.key.remoteJid;
+    const username = user.split("@")[0];
 
-        const prot = mek.message.protocolMessage;
-        if (prot.type !== 0) return; // 0 = REVOKE (delete)
+    // deleted message content
+    const deletedMsg = prot.key;
+    const quoted = prot.message || null;
 
-        const chat = prot.key.remoteJid;
-        const user = prot.key.participant || mek.key.participant || mek.key.remoteJid;
-        const username = user.split("@")[0];
+    let notifyText = `🚨 *ANTI DELETE ACTIVE!*\n👤 @${username} deleted a message.\n⏰ ${new Date().toLocaleString()}`;
 
-        // Deleted message key
-        const deletedKey = prot.key;
-
-        // Load original deleted message from store
-        let deletedMsg;
-        try {
-            deletedMsg = await conn.loadMessage(chat, deletedKey.id); 
-        } catch {
-            deletedMsg = null;
-        }
-
-        // Notify + resend deleted message
-        if (isGroup) {
-            await conn.sendMessage(chat, {
-                text: `🚨 *ANTI DELETE ACTIVE!*\n👤 @${username} deleted a message.\n⏰ Time: ${new Date().toLocaleString()}`,
-                mentions: [user]
-            });
-
-            if (deletedMsg?.message) {
-                await conn.sendMessage(chat, { 
-                    forward: deletedMsg, 
-                    quoted: deletedMsg 
-                });
-            }
-        } else {
-            await conn.sendMessage(chat, {
-                text: `🚨 *ANTI DELETE ACTIVE!*\nYou deleted a message.\n⏰ Time: ${new Date().toLocaleString()}`
-            });
-
-            if (deletedMsg?.message) {
-                await conn.sendMessage(chat, { 
-                    forward: deletedMsg, 
-                    quoted: deletedMsg 
-                });
-            }
-        }
-
-    } catch (e) {
-        console.log("ANTI_DELETE ERROR:", e);
+    if (quoted?.conversation) {
+      // text deleted
+      await client.sendMessage(chat, {
+        text: `${notifyText}\n\n💬 Deleted text:\n> ${quoted.conversation}`,
+        mentions: [user]
+      });
+    } else if (quoted?.imageMessage) {
+      const buffer = await downloadMediaMessage(
+        { message: { imageMessage: quoted.imageMessage } },
+        "buffer",
+        {},
+        { reuploadRequest: client.updateMediaMessage }
+      );
+      await client.sendMessage(chat, {
+        image: buffer,
+        caption: `${notifyText}\n\n🖼️ Deleted Image`,
+        mentions: [user]
+      });
+    } else if (quoted?.videoMessage) {
+      const buffer = await downloadMediaMessage(
+        { message: { videoMessage: quoted.videoMessage } },
+        "buffer",
+        {},
+        { reuploadRequest: client.updateMediaMessage }
+      );
+      await client.sendMessage(chat, {
+        video: buffer,
+        caption: `${notifyText}\n\n🎥 Deleted Video`,
+        mentions: [user]
+      });
+    } else if (quoted?.audioMessage) {
+      const buffer = await downloadMediaMessage(
+        { message: { audioMessage: quoted.audioMessage } },
+        "buffer",
+        {},
+        { reuploadRequest: client.updateMediaMessage }
+      );
+      await client.sendMessage(chat, {
+        audio: buffer,
+        mimetype: "audio/mp4",
+        ptt: quoted.audioMessage.ptt || false,
+        caption: `${notifyText}\n\n🎵 Deleted Audio`,
+        mentions: [user]
+      });
+    } else {
+      // fallback if type unknown
+      await client.sendMessage(chat, {
+        text: notifyText,
+        mentions: [user]
+      });
     }
+
+  } catch (e) {
+    console.error("ANTI_DELETE ERROR:", e);
+  }
 });
