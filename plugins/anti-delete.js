@@ -1,40 +1,61 @@
-const { cmd } = require("../command");
-const config = require("../config");
-const { downloadMediaMessage } = require("./lib/msg");
+const config = require('../config');
+const { cmd } = require('../command');
 
-module.exports = {
-    on: "body",
-    filename: __filename,
-    async function(conn, mek, m, { from, sender, isGroup, reply }) {
+cmd({
+  on: "body"
+},    
+async (conn, mek, m, { from, isGroup }) => {       
+
+    try {
+        if (config.ANTI_DELETE !== 'true') return;
+
+        if (!mek.message?.protocolMessage) return;
+
+        const prot = mek.message.protocolMessage;
+        if (prot.type !== 0) return; // 0 = REVOKE (delete)
+
+        const chat = prot.key.remoteJid;
+        const user = prot.key.participant || mek.key.participant || mek.key.remoteJid;
+        const username = user.split("@")[0];
+
+        // Deleted message key
+        const deletedKey = prot.key;
+
+        // Load original deleted message from store
+        let deletedMsg;
         try {
-            // Check if anti-delete is enabled
-            if (config.ANTI_DELETE !== "true") return;
-            
-            // Check if this is a message deletion
-            if (!mek.message?.protocolMessage) return;
-            
-            const prot = mek.message.protocolMessage;
-            if (prot.type !== "REVOKE") return;
+            deletedMsg = await conn.loadMessage(chat, deletedKey.id); 
+        } catch {
+            deletedMsg = null;
+        }
 
-            const chat = prot.key.remoteJid;
-            const user = prot.key.participant || mek.key.participant || mek.key.remoteJid;
-            const username = user.split("@")[0];
+        // Notify + resend deleted message
+        if (isGroup) {
+            await conn.sendMessage(chat, {
+                text: `🚨 *ANTI DELETE ACTIVE!*\n👤 @${username} deleted a message.\n⏰ Time: ${new Date().toLocaleString()}`,
+                mentions: [user]
+            });
 
-            // We can't retrieve the actual deleted content without storing messages,
-            // but we can notify about the deletion
-            if (isGroup) {
-                await conn.sendMessage(chat, {
-                    text: `🚨 *Anti Delete Active!*\n👤 @${username} deleted a message.\n⏰ Time: ${new Date().toLocaleString()}`,
-                    mentions: [user]
-                });
-            } else {
-                await conn.sendMessage(chat, {
-                    text: `🚨 *Anti Delete Active!*\nYou deleted a message.\n⏰ Time: ${new Date().toLocaleString()}`
+            if (deletedMsg?.message) {
+                await conn.sendMessage(chat, { 
+                    forward: deletedMsg, 
+                    quoted: deletedMsg 
                 });
             }
+        } else {
+            await conn.sendMessage(chat, {
+                text: `🚨 *ANTI DELETE ACTIVE!*\nYou deleted a message.\n⏰ Time: ${new Date().toLocaleString()}`
+            });
 
-        } catch (err) {
-            console.error("Anti Delete Error:", err);
+            if (deletedMsg?.message) {
+                await conn.sendMessage(chat, { 
+                    forward: deletedMsg, 
+                    quoted: deletedMsg 
+                });
+            }
         }
+
+    } catch (e) {
+        console.log("ANTI_DELETE ERROR:", e);
     }
-};
+});
