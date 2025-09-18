@@ -607,24 +607,25 @@ function setupMessageHandlers(conn, number) {
         console.log(red + "☰".repeat(32) + reset);
 
         // Auto mark as seen
-        if (config.MARK_AS_SEEN === 'true') {
-            try {
-                await conn.sendReadReceipt(mek.key.remoteJid, mek.key.id, [mek.key.participant || mek.key.remoteJid]);
-                console.log(blue + `Marked message from ${mek.key.remoteJid} as seen for ${number}.` + reset);
-            } catch (error) {
-                console.error(red + `Error marking message as seen for ${number}:`, error + reset);
-            }
-        }
+        if (config.READ_MESSAGE === "true") {
+    try {
+        const from = mek.key.remoteJid;
+        const id = mek.key.id;
+        const participant = mek.key.participant || from;
 
-        // Auto read messages
-        if (config.READ_MESSAGE === 'true') {
-            try {
-                await conn.readMessages([mek.key]);
-                console.log(cyan + `Marked message from ${mek.key.remoteJid} as read for ${number}.` + reset);
-            } catch (error) {
-                console.error(red + `Error marking message as read for ${number}:`, error + reset);
-            }
-        }
+        // Seen (double grey tick → delivered/seen)
+        await conn.sendReadReceipt(from, id, [participant]);
+
+        // Read (blue tick → marked as read)
+        await conn.readMessages([
+            { remoteJid: from, id, participant }
+        ]);
+
+        console.log(blue + `Marked message from ${from} as seen & read for ${number}.` + reset);
+    } catch (error) {
+        console.error(red + `Error marking message as seen/read for ${number}:`, error + reset);
+    }
+}
 
         // Status updates handling
         if (mek.key && mek.key.remoteJid === 'status@broadcast') {
