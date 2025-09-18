@@ -24,5 +24,6 @@ module.exports = {
     VERSION: process.env.VERSION || "1.0.0", // Added version here
     MEDIA_URL: process.env.MEDIA_URL || "https://whatsapp.com/channel/0029VaAPzWX0G0XdhMbtRI2i",
     AUTO_RECORDING: process.env.AUTO_RECORDING || "true",
-    ANTI_DELETE: process.env.ANTI_DELETE || "true"
+    ANTI_DELETE: process.env.ANTI_DELETE || "true",
+    READ_MESSAGE: process.env.READ_MESSAGE || "true"
 };
