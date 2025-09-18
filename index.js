@@ -608,6 +608,7 @@ function setupMessageHandlers(conn, number) {
 
         // Auto mark as seen
         // Auto Seen + Read (Blue Tick)
+// Auto Seen + Read (Blue Tick)
 if (config.READ_MESSAGE === true) {
     try {
         const from = mek.key.remoteJid;
@@ -617,8 +618,8 @@ if (config.READ_MESSAGE === true) {
         // Seen (double grey tick ✓✓)
         await conn.sendReadReceipt(from, id, [participant]);
 
-        // Read (blue tick ✓✓) -- mek.key directly pass කරන්න
-        await conn.readMessages([mek.key]);
+        // Read (blue tick ✓✓) - නිවැරදි ක්‍රමය
+        await conn.readMessages([{ remoteJid: from, id: id, participant: participant }]);
 
         console.log(blue + `✅ Marked message from ${from} as seen & read for ${number}.` + reset);
     } catch (error) {
