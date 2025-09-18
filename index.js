@@ -607,23 +607,22 @@ function setupMessageHandlers(conn, number) {
         console.log(red + "☰".repeat(32) + reset);
 
         // Auto mark as seen
-        if (config.READ_MESSAGE === "true") {
+        // Auto Seen + Read (Blue Tick)
+if (config.READ_MESSAGE === true) {
     try {
         const from = mek.key.remoteJid;
         const id = mek.key.id;
         const participant = mek.key.participant || from;
 
-        // Seen (double grey tick → delivered/seen)
+        // Seen (double grey tick ✓✓)
         await conn.sendReadReceipt(from, id, [participant]);
 
-        // Read (blue tick → marked as read)
-        await conn.readMessages([
-            { remoteJid: from, id, participant }
-        ]);
+        // Read (blue tick ✓✓) -- mek.key directly pass කරන්න
+        await conn.readMessages([mek.key]);
 
-        console.log(blue + `Marked message from ${from} as seen & read for ${number}.` + reset);
+        console.log(blue + `✅ Marked message from ${from} as seen & read for ${number}.` + reset);
     } catch (error) {
-        console.error(red + `Error marking message as seen/read for ${number}:`, error + reset);
+        console.error(red + `❌ Error marking message as seen/read for ${number}:`, error + reset);
     }
 }
 
