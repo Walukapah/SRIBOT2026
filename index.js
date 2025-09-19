@@ -721,6 +721,316 @@ if (config.READ_MESSAGE === true) {
             conn.sendMessage(from, { text: teks }, { quoted: mek })
         }
 
+        if(!isOwner) {  // Fixed redundant condition
+    if(config.ANTI_DELETE === "true") {
+        
+        if (!m.id.startsWith("BAE5")) {
+            
+            // Ensure the base directory exists
+            const baseDir = 'message_data';
+            if (!fs.existsSync(baseDir)) {
+                fs.mkdirSync(baseDir);
+            }
+            
+            function loadChatData(remoteJid, messageId) {
+                const chatFilePath = path.join(baseDir, remoteJid, `${messageId}.json`);
+                try {
+                    const data = fs.readFileSync(chatFilePath, 'utf8');
+                    return JSON.parse(data) || [];
+                } catch (error) {
+                    return [];
+                }
+            }
+            
+            function saveChatData(remoteJid, messageId, chatData) {
+                const chatDir = path.join(baseDir, remoteJid);
+            
+                if (!fs.existsSync(chatDir)) {
+                    fs.mkdirSync(chatDir, { recursive: true });
+                }
+            
+                const chatFilePath = path.join(chatDir, `${messageId}.json`);
+            
+                try {
+                    fs.writeFileSync(chatFilePath, JSON.stringify(chatData, null, 2));
+                    // console.log('Chat data saved successfully.');
+                } catch (error) {
+                    console.error('Error saving chat data:', error);
+                }
+            }
+                
+            function handleIncomingMessage(message) {
+                const remoteJid = from; // Fixed: removed comment
+                const messageId = message.key.id;
+            
+                const chatData = loadChatData(remoteJid, messageId);
+            
+                chatData.push(message);
+            
+                saveChatData(remoteJid, messageId, chatData);
+            
+                // console.log('Message received and saved:', messageId);
+            }
+            
+            const delfrom = config.DELETEMSGSENDTO !== '' ? config.DELETEMSGSENDTO + '@s.whatsapp.net' : from;
+            
+            function handleMessageRevocation(revocationMessage) {
+                // const remoteJid = revocationMessage.message.protocolMessage.key.remoteJid;
+                // const messageId = revocationMessage.message.protocolMessage.key.id;
+                const remoteJid = from; 
+                const messageId = revocationMessage.msg.key.id;
+            
+                // console.log('Received revocation message with ID:', messageId);
+            
+                const chatData = loadChatData(remoteJid, messageId);
+            
+                const originalMessage = chatData[0];
+            
+                if (originalMessage) {
+                    const deletedBy = revocationMessage.sender.split('@')[0];
+                    const sentBynn = originalMessage.key.participant ?? revocationMessage.sender;
+                    const sentBy = sentBynn.split('@')[0];
+                    
+                    if (deletedBy.includes(botNumber) || sentBy.includes(botNumber)) return;
+                    
+                    const xx = '```';
+                    
+                    if (originalMessage.message && originalMessage.message.conversation && originalMessage.message.conversation !== '') {
+                        const messageText = originalMessage.message.conversation;
+                        if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+                        
+                        conn.sendMessage(delfrom, { 
+                            text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${messageText}${xx}` 
+                        });
+                        //........................................//........................................
+                    } else if (originalMessage.msg && originalMessage.msg.type === 'MESSAGE_EDIT') { // Fixed: added check for originalMessage.msg
+                        conn.sendMessage(delfrom, { 
+                            text: `❌ *edited message detected* ${originalMessage.message.editedMessage.message.protocolMessage.editedMessage.conversation}` 
+                        }, {quoted: mek});
+                        
+                        //........................................//........................................
+                    } else if (originalMessage.message && originalMessage.message.extendedTextMessage && originalMessage.msg && originalMessage.msg.text ) { // Fixed: typo in extendedTextMessage
+                        const messageText = originalMessage.msg.text;
+                        if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+                        
+                        conn.sendMessage(delfrom, { 
+                            text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${messageText}${xx}` 
+                        });
+                    } else if (originalMessage.message && originalMessage.message.extendedTextMessage) { // Fixed: typo in extendedTextMessage
+                        const messageText = originalMessage.message.extendedTextMessage.text; // Fixed: corrected variable name
+                        if (isGroup && messageText && messageText.includes('chat.whatsapp.com')) return; // Fixed: added check if messageText exists
+                        
+                        conn.sendMessage(delfrom, { 
+                            text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${originalMessage.body}${xx}` 
+                        });
+                    } else if (originalMessage.type === 'extendedTextMessage') {
+                        async function quotedMessageRetrive() {     
+                            var nameJpg = getRandom('');
+                            const ml = sms(conn, originalMessage);
+                            
+                            if (originalMessage.message.extendedTextMessage) {
+                                const messageText = originalMessage.message.extendedTextMessage.text;
+                                if (isGroup && messageText && messageText.includes('chat.whatsapp.com')) return; // Fixed: added check if messageText exists
+                                
+                                conn.sendMessage(delfrom, { 
+                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${originalMessage.message.extendedTextMessage.text}${xx}` 
+                                });
+                            } else {
+                                const messageText = originalMessage.message.extendedTextMessage && originalMessage.message.extendedTextMessage.text; // Fixed: added safe check
+                                if (isGroup && messageText && messageText.includes('chat.whatsapp.com')) return; // Fixed: added check if messageText exists
+                                
+                                conn.sendMessage(delfrom, { 
+                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${originalMessage.message.extendedTextMessage && originalMessage.message.extendedTextMessage.text}${xx}` 
+                                });
+                            }
+                        }
+                        
+                        quotedMessageRetrive();
+                    } else if (originalMessage.type === 'imageMessage') {
+                        async function imageMessageRetrive() {
+                            var nameJpg = getRandom('');
+                            const ml = sms(conn, originalMessage);
+                            let buff = await ml.download(nameJpg);
+                            let fileType = require('file-type');
+                            let type = fileType.fromBuffer(buff);
+                            await fs.promises.writeFile("./" + type.ext, buff);
+                            
+                            if (originalMessage.message.imageMessage.caption) {
+                                const messageText = originalMessage.message.imageMessage.caption;
+                                if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+                                
+                                await conn.sendMessage(delfrom, { 
+                                    image: fs.readFileSync("./" + type.ext), 
+                                    caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${originalMessage.message.imageMessage.caption}` 
+                                });
+                            } else {
+                                await conn.sendMessage(delfrom, { 
+                                    image: fs.readFileSync("./" + type.ext), 
+                                    caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_` 
+                                });
+                            }       
+                        }
+                        
+                        imageMessageRetrive();
+                    } else if (originalMessage.type === 'videoMessage') {
+                        async function videoMessageRetrive() {
+                            var nameJpg = getRandom('');
+                            const ml = sms(conn, originalMessage);
+                            
+                            const vData = originalMessage.message.videoMessage.fileLength;
+                            const vTime = originalMessage.message.videoMessage.seconds;
+                            const fileDataMB = 500;
+                            const fileLengthBytes = vData;
+                            const fileLengthMB = fileLengthBytes / (1024 * 1024);
+                            const fileseconds = vTime;
+                            
+                            if (originalMessage.message.videoMessage.caption) {
+                                if (fileLengthMB < fileDataMB && fileseconds < 30*60) {
+                                    let buff = await ml.download(nameJpg);
+                                    let fileType = require('file-type');
+                                    let type = fileType.fromBuffer(buff);
+                                    await fs.promises.writeFile("./" + type.ext, buff);
+                                    
+                                    const messageText = originalMessage.message.videoMessage.caption;
+                                    if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+                                    
+                                    await conn.sendMessage(delfrom, { 
+                                        video: fs.readFileSync("./" + type.ext), 
+                                        caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${originalMessage.message.videoMessage.caption}` 
+                                    });
+                                }
+                            } else {
+                                let buff = await ml.download(nameJpg);
+                                let fileType = require('file-type');
+                                let type = fileType.fromBuffer(buff);
+                                await fs.promises.writeFile("./" + type.ext, buff);
+                                
+                                const vData = originalMessage.message.videoMessage.fileLength;
+                                const vTime = originalMessage.message.videoMessage.seconds;
+                                const fileDataMB = 500;
+                                const fileLengthBytes = vData;
+                                const fileLengthMB = fileLengthBytes / (1024 * 1024);
+                                const fileseconds = vTime;
+                                
+                                if (fileLengthMB < fileDataMB && fileseconds < 30*60) {
+                                    await conn.sendMessage(delfrom, { 
+                                        video: fs.readFileSync("./" + type.ext), 
+                                        caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_` 
+                                    });
+                                }
+                            }       
+                        }
+                        
+                        videoMessageRetrive();
+                    } else if (originalMessage.type === 'documentMessage') {
+                        async function documentMessageRetrive() {
+                            var nameJpg = getRandom('');
+                            const ml = sms(conn, originalMessage);
+                            let buff = await ml.download(nameJpg);
+                            let fileType = require('file-type');
+                            let type = fileType.fromBuffer(buff);
+                            await fs.promises.writeFile("./" + type.ext, buff);
+                            
+                            if (originalMessage.message.documentWithCaptionMessage) {
+                                await conn.sendMessage(delfrom, { 
+                                    document: fs.readFileSync("./" + type.ext), 
+                                    mimetype: originalMessage.message.documentMessage.mimetype, 
+                                    fileName: originalMessage.message.documentMessage.fileName, 
+                                    caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n`
+                                });
+                            } else {
+                                await conn.sendMessage(delfrom, { 
+                                    document: fs.readFileSync("./" + type.ext), 
+                                    mimetype: originalMessage.message.documentMessage.mimetype, 
+                                    fileName: originalMessage.message.documentMessage.fileName, 
+                                    caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n`
+                                });
+                            }
+                        }
+                        
+                        documentMessageRetrive();
+                    } else if (originalMessage.type === 'audioMessage') {
+                        async function audioMessageRetrive() {
+                            var nameJpg = getRandom('');
+                            const ml = sms(conn, originalMessage);
+                            let buff = await ml.download(nameJpg);
+                            let fileType = require('file-type');
+                            let type = fileType.fromBuffer(buff);
+                            await fs.promises.writeFile("./" + type.ext, buff);
+                            
+                            if (originalMessage.message.audioMessage) {
+                                const audioq = await conn.sendMessage(delfrom, { 
+                                    audio: fs.readFileSync("./" + type.ext), 
+                                    mimetype: originalMessage.message.audioMessage.mimetype, 
+                                    fileName: `${m.id}.mp3` 
+                                });
+                                
+                                return await conn.sendMessage(delfrom, { 
+                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` 
+                                }, {quoted: audioq});
+                            } else {
+                                if (originalMessage.message.audioMessage.ptt === "true") {
+                                    const pttt = await conn.sendMessage(delfrom, { 
+                                        audio: fs.readFileSync("./" + type.ext), 
+                                        mimetype: originalMessage.message.audioMessage.mimetype, 
+                                        ptt: 'true',
+                                        fileName: `${m.id}.mp3` 
+                                    });
+                                    
+                                    return await conn.sendMessage(delfrom, { 
+                                        text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` 
+                                    }, {quoted: pttt});
+                                }
+                            }
+                        }
+                        
+                        audioMessageRetrive();
+                    } else if (originalMessage.type === 'stickerMessage') {
+                        async function stickerMessageRetrive() {
+                            var nameJpg = getRandom('');
+                            const ml = sms(conn, originalMessage);
+                            let buff = await ml.download(nameJpg);
+                            let fileType = require('file-type');
+                            let type = fileType.fromBuffer(buff);
+                            await fs.promises.writeFile("./" + type.ext, buff);
+                            
+                            if (originalMessage.message.stickerMessage) {
+                                const sdata = await conn.sendMessage(delfrom, {
+                                    sticker: fs.readFileSync("./" + type.ext),
+                                    package: 'DEVIL-TECH-MD  🌟'
+                                });
+                                
+                                return await conn.sendMessage(delfrom, { 
+                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` 
+                                }, {quoted: sdata});
+                            } else {
+                                const stdata = await conn.sendMessage(delfrom, {
+                                    sticker: fs.readFileSync("./" + type.ext),
+                                    package: 'DEVIL-TECH-MD  🌟'
+                                });
+                                
+                                return await conn.sendMessage(delfrom, { 
+                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` 
+                                }, {quoted: stdata});
+                            }
+                        }
+                        
+                        stickerMessageRetrive();
+                    }
+                } else {
+                    console.log('Original message not found for revocation.');
+                }
+            }
+            
+            if (mek.msg && mek.msg.type === 0) {
+                handleMessageRevocation(mek);
+            } else {
+                handleIncomingMessage(mek);
+            }
+        }
+    }
+}
+        
         conn.sendFileUrl = async (jid, url, caption, quoted, options = {}) => {
             let mime = '';
             let res = await axios.head(url)
