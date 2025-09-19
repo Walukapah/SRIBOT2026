@@ -105,7 +105,7 @@ cmd({
                         downloadUrl = audio128k.url;
                         type = { 
                             document: { url: downloadUrl },
-                            fileName: `${videoInfo.title}.mp3`,
+                            fileName: `${videoInfo.title}.m4a`,
                             mimetype: "audio/mpeg",
                             caption: videoInfo.title
                         };
@@ -116,7 +116,7 @@ cmd({
                         downloadUrl = audio48k.url;
                         type = { 
                             document: { url: downloadUrl },
-                            fileName: `${videoInfo.title}.mp3`,
+                            fileName: `${videoInfo.title}.m4a`,
                             mimetype: "audio/mpeg",
                             caption: videoInfo.title
                         };
