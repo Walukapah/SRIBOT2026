@@ -104,8 +104,10 @@ cmd({
                         if (!audio128k) return await reply("❌ 128kbps audio not available!");
                         downloadUrl = audio128k.url;
                         type = { 
-                            audio: { url: downloadUrl }, 
-                            mimetype: "audio/mp4"
+                            document: { url: downloadUrl },
+                            fileName: `${videoInfo.title}.mp3`,
+                            mimetype: "audio/mpeg",
+                            caption: videoInfo.title
                         };
                         break;
                     case "1.2":
@@ -113,8 +115,10 @@ cmd({
                         if (!audio48k) return await reply("❌ 48kbps audio not available!");
                         downloadUrl = audio48k.url;
                         type = { 
-                            audio: { url: downloadUrl }, 
-                            mimetype: "audio/mp4"
+                            document: { url: downloadUrl },
+                            fileName: `${videoInfo.title}.mp3`,
+                            mimetype: "audio/mpeg",
+                            caption: videoInfo.title
                         };
                         break;
                     
