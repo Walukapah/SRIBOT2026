@@ -53,24 +53,15 @@ async(conn, mek, m, {from, quoted, body, isCmd, command, args, q, isGroup, sende
             }
         ];
 
-        // First send the image
-        await conn.sendMessage(from, {
-            image: { url: config.MENU_IMG_URL },
-            caption: text,
-            footer: config.BOT_NAME
-        }, { quoted: mek });
-
-        // Then send the list message
-        const listMessage = {
-            image: { url: config.MENU_IMG_URL },
-            caption: text,
-            footer: config.BOT_NAME,
-            title: "📋 COMMAND MENU",
-            buttonText: "SELECT OPTION",
-            sections: sections
-        };
-
-        return await conn.sendMessage(from, listMessage, { quoted: mek });
+        // Use the new replyListImg method
+        return m.replyListImg(
+            { url: config.MENU_IMG_URL },
+            text,
+            "SELECT OPTION",
+            sections,
+            "📋 COMMAND MENU",
+            config.BOT_NAME
+        );
 
     } catch(e) {
         console.log("Menu error:", e);
