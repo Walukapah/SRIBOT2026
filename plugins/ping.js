@@ -31,7 +31,7 @@ cmd({
 async(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply}) => {
     try {
         const start = Date.now();
-        await conn.sendMessage(from, { text: 'Pong!' });
+        await conn.sendMessage(from, { text: 'Pong!', ai: true });
         const end = Date.now();
         const ping = Math.round((end - start) / 2);
 
