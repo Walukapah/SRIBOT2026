@@ -62,7 +62,8 @@ async(conn, mek, m, {from, quoted, body, isCmd, command, args, q, isGroup, sende
 
         // Then send the list message
         const listMessage = {
-            text: "Please select an option from the menu:",
+            image: { url: config.MENU_IMG_URL },
+            caption: text,
             footer: config.BOT_NAME,
             title: "📋 COMMAND MENU",
             buttonText: "SELECT OPTION",
