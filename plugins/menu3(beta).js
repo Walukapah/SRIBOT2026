@@ -1,27 +1,23 @@
-const config = require('../config');
 const { cmd } = require('../command');
+const config = require('../config');
 
 cmd({
     pattern: "menu3",
-    desc: "Show bot command menu",
-    category: "main",
+    desc: "Show interactive menu with buttons",
+    category: "general",
     filename: __filename
-},
-async(conn, mek, m, {from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply}) => {
+}, async (conn, mek, m, { from, sender, reply }) => {
     try {
-        const startTime = conn.connectionTime || Date.now();
+        const startTime = conn.creationTime || Date.now();
         const uptime = Math.floor((Date.now() - startTime) / 1000);
         const hours = Math.floor(uptime / 3600);
         const minutes = Math.floor((uptime % 3600) / 60);
         const seconds = Math.floor(uptime % 60);
-
-        // Send reaction first
-        await m.react("👍");
-
-        const title = '🪨 Hello, *"Itz: ZEUS-MINI"*';
+        
+        const title = '🪨 Hellow, *"Itz: ZEUS-MINI"*';
         const text = `╭──◯\n` +
             `│ \`S T A T U S\`\n` +
-            `│ *⦁ Name:* ZEUS-MINI\n` +
+            `│ *⦁ Name:* @ZEUS-MINI\n` +
             `│ *⦁ Version:* 0.0001+\n` +
             `│ *⦁ Platform:* Heroku\n` +
             `│ *⦁ Uptime:* ${hours}h ${minutes}m ${seconds}s\n` +
@@ -53,18 +49,16 @@ async(conn, mek, m, {from, quoted, body, isCmd, command, args, q, isGroup, sende
             }
         ];
 
-        // Use the new replyListImg method
-        return m.replyListImg(
-            { url: config.MENU_IMG_URL },
-            text,
-            "SELECT OPTION",
-            sections,
-            "📋 COMMAND MENU",
-            config.BOT_NAME
-        );
-
-    } catch(e) {
-        console.log("Menu error:", e);
-        reply(`❌ Error loading menu: ${e.message}`);
+        await conn.sendMessage(from, {
+            text: text,
+            footer: config.BOT_NAME,
+            title: title,
+            buttonText: "SELECT OPTION",
+            sections: sections,
+            image: { url: config.MENU_IMG_URL || "https://files.catbox.moe/kus7ix.jpg" }
+        });
+    } catch (error) {
+        console.error("Error in menu3 command:", error);
+        reply("❌ Failed to display menu. Please try again later.");
     }
 });
