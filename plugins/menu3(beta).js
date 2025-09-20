@@ -3,61 +3,72 @@ const { cmd } = require('../command');
 
 cmd({
     pattern: "menu3",
-    desc: "Displays main menu with interactive buttons",
-    category: "utility",
+    desc: "Show bot command menu",
+    category: "main",
     filename: __filename
 },
-async(conn, mek, m, { from, sender, pushname }) => {
-    try {
-        const botName = config.BOT_NAME || "SRI-BOT 🇱🇰";
-        const ownerNumber = config.OWNER_NUMBER[0] || "94753670175";
-        
-        // Main menu text
-        const menuText = `╭─⊷ *${botName}*
-│ 👤 User: ${pushname || 'User'}
-│ 📞 Number: ${sender.split('@')[0]}
-│ 🕒 Time: ${new Date().toLocaleTimeString()}
-│ 💻 Mode: ${config.MODE || 'public'}
-│ 🔧 Version: ${config.VERSION || '1.0.0'}
-╰─────────────
+async(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply}) => {
+try{
+    const startTime = conn.connectionTime || Date.now();
+    const uptime = Math.floor((Date.now() - startTime) / 1000);
+    const hours = Math.floor(uptime / 3600);
+    const minutes = Math.floor((uptime % 3600) / 60);
+    const seconds = Math.floor(uptime % 60);
 
-🤖 *AI MENU* - AI commands
-🔍 *SEARCH MENU* - Search commands
-⬇️ *DOWNLOAD MENU* - Download commands
-👑 *OWNER MENU* - Owner commands
-🔄 *CONVERT MENU* - Converter tools
-👥 *GROUP MENU* - Group management
-🎨 *STICKER MENU* - Sticker tools
-🎮 *GAME MENU* - Fun games
-🧮 *MATHTOOL MENU* - Math utilities
+    // Send reaction first
+    await conn.sendMessage(from, { 
+        react: { 
+            text: "👍",
+            key: mek.key 
+        } 
+    });
 
-_Select an option below_`;
+    const title = '🪨 Hellow, *"Itz: ZEUS-MINI"*';
+    const text = `╭──◯\n` +
+        `│ \`S T A T U S\`\n` +
+        `│ *⦁ Name:* @ZEUS-MINI\n` +
+        `│ *⦁ Version:* 0.0001+\n` +
+        `│ *⦁ Platform:* Heroku\n` +
+        `│ *⦁ Uptime:* ${hours}h ${minutes}m ${seconds}s\n` +
+        `╰──◯`;
 
-        // Create buttons array
-        const buttons = [
-            {buttonId: `${config.PREFIX}aimenu`, buttonText: {displayText: '🤖 AI MENU'}, type: 1},
-            {buttonId: `${config.PREFIX}searchmenu`, buttonText: {displayText: '🔍 SEARCH'}, type: 1},
-            {buttonId: `${config.PREFIX}downloadmenu`, buttonText: {displayText: '⬇️ DOWNLOAD'}, type: 1},
-            {buttonId: `${config.PREFIX}ownermenu`, buttonText: {displayText: '👑 OWNER'}, type: 1},
-            {buttonId: `${config.PREFIX}convertmenu`, buttonText: {displayText: '🔄 CONVERT'}, type: 1},
-            {buttonId: `${config.PREFIX}groupmenu`, buttonText: {displayText: '👥 GROUP'}, type: 1},
-            {buttonId: `${config.PREFIX}stickermenu`, buttonText: {displayText: '🎨 STICKER'}, type: 1},
-            {buttonId: `${config.PREFIX}gamemenu`, buttonText: {displayText: '🎮 GAME'}, type: 1},
-            {buttonId: `${config.PREFIX}mathtoolmenu`, buttonText: {displayText: '🧮 MATH TOOLS'}, type: 1}
-        ];
+    const sections = [
+        {
+            title: "MAIN COMMANDS",
+            rows: [
+                { title: "BOT STATUS", description: "Show bot information", rowId: `${config.PREFIX}alive` },
+                { title: "SYSTEM INFO", description: "Show system details", rowId: `${config.PREFIX}system` },
+                { title: "PING TEST", description: "Check bot latency", rowId: `${config.PREFIX}ping` }
+            ]
+        },
+        {
+            title: "MEDIA DOWNLOAD",
+            rows: [
+                { title: "DOWNLOAD SONG", description: "Download audio from YouTube", rowId: `${config.PREFIX}song` },
+                { title: "DOWNLOAD VIDEO", description: "Download video from YouTube", rowId: `${config.PREFIX}video` }
+            ]
+        },
+        {
+            title: "OTHER OPTIONS",
+            rows: [
+                { title: "OWNER INFO", description: "Contact bot owner", rowId: `${config.PREFIX}owner` },
+                { title: "PREFERENCES", description: "Change bot settings", rowId: `${config.PREFIX}preferences` },
+                { title: "JOIN CHANNEL", description: "Get our channel link", rowId: `${config.PREFIX}channel` }
+            ]
+        }
+    ];
 
-        // Send the button message
-        await m.replyButtons(
-            menuText,
-            buttons,
-            'MAIN MENU',
-            `Owner: ${ownerNumber} | ${botName}`
-        );
+    return await conn.sendMessage(from, {
+        image: { url: config.MENU_IMG_URL },
+        caption: text,
+        footer: config.BOT_NAME,
+        title: title,
+        buttonText: "SELECT OPTION",
+        sections: sections
+    }, { quoted: mek });
 
-    } catch (error) {
-        console.error('Menu3 error:', error);
-        await conn.sendMessage(from, { 
-            text: "❌ Failed to display menu. Please try again later." 
-        }, { quoted: mek });
-    }
-});
+} catch(e) {
+    console.log(e)
+    reply(`${e}`)
+}
+})
