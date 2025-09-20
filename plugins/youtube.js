@@ -1,6 +1,10 @@
 const config = require('../config');
-const {cmd , commands} = require('../command');
+const { cmd } = require('../command');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const ffmpeg = require('fluent-ffmpeg'); // npm install fluent-ffmpeg
+const { tmpdir } = require('os');
 
 function replaceYouTubeID(url) {
     const regex = /(?:youtube\.com\/(?:.*v=|.*\/)|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/;
@@ -74,7 +78,6 @@ cmd({
         const messageID = sentMsg.key.id;
         await conn.sendMessage(from, { react: { text: '🎬', key: sentMsg.key } });
 
-        // Listen for user reply
         const replyHandler = async (messageUpdate) => {
             try {
                 const mekInfo = messageUpdate?.messages[0];
@@ -87,107 +90,61 @@ cmd({
 
                 let userReply = messageType.trim();
                 let msg;
-                let type;
                 let downloadUrl;
-                let fileName = `${videoInfo.title}.${userReply.startsWith('1') ? 'm4a' : 'mp4'}`;
-                
-                // Remove the listener after first response
+                let type;
+                let fileName;
+
                 conn.ev.off('messages.upsert', replyHandler);
 
                 const findItem = (type, quality) => 
                     downloadItems.find(item => item.type === type && item.quality === quality);
 
                 switch(userReply) {
-                    // Audio options
+                    // Audio options (convert to mp3)
                     case "1.1":
                         const audio128k = findItem("Audio", "128K");
                         if (!audio128k) return await reply("❌ 128kbps audio not available!");
                         downloadUrl = audio128k.url;
-                        type = { 
-                            document: { url: downloadUrl },
-                            fileName: fileName,
-                            mimetype: "audio/mpeg",
-                            caption: videoInfo.title
-                        };
-                        break;
+                        fileName = `${videoInfo.title}.mp3`;
+                        msg = await conn.sendMessage(from, { text: "⏳ Downloading & Converting to MP3..." }, { quoted: mek });
+                        await sendAsMp3(conn, from, downloadUrl, fileName, mek);
+                        await conn.sendMessage(from, { text: '✅ Sent as MP3 ✅', edit: msg.key });
+                        return;
+
                     case "1.2":
                         const audio48k = findItem("Audio", "48K");
                         if (!audio48k) return await reply("❌ 48kbps audio not available!");
                         downloadUrl = audio48k.url;
-                        type = { 
-                            document: { url: downloadUrl },
-                            fileName: fileName,
-                            mimetype: "audio/mpeg",
-                            caption: videoInfo.title
-                        };
-                        break;
-                    
+                        fileName = `${videoInfo.title}.mp3`;
+                        msg = await conn.sendMessage(from, { text: "⏳ Downloading & Converting to MP3..." }, { quoted: mek });
+                        await sendAsMp3(conn, from, downloadUrl, fileName, mek);
+                        await conn.sendMessage(from, { text: '✅ Sent as MP3 ✅', edit: msg.key });
+                        return;
+
                     // Video options
                     case "2.1":
-                        const videoFHD = findItem("Video", "FHD");
-                        if (!videoFHD) return await reply("❌ FHD video not available!");
-                        downloadUrl = videoFHD.url;
-                        type = { 
-                            video: { url: downloadUrl }, 
-                            caption: videoInfo.title,
-                            fileName: fileName
-                        };
+                        type = { video: { url: findItem("Video", "FHD")?.url }, caption: videoInfo.title };
                         break;
                     case "2.2":
-                        const videoHD = findItem("Video", "HD");
-                        if (!videoHD) return await reply("❌ HD video not available!");
-                        downloadUrl = videoHD.url;
-                        type = { 
-                            video: { url: downloadUrl }, 
-                            caption: videoInfo.title,
-                            fileName: fileName
-                        };
+                        type = { video: { url: findItem("Video", "HD")?.url }, caption: videoInfo.title };
                         break;
                     case "2.3":
-                        const videoSD = findItem("Video", "SD");
-                        if (!videoSD) return await reply("❌ SD video not available!");
-                        downloadUrl = videoSD.url;
-                        type = { 
-                            video: { url: downloadUrl }, 
-                            caption: videoInfo.title,
-                            fileName: fileName
-                        };
+                        type = { video: { url: findItem("Video", "SD")?.url }, caption: videoInfo.title };
                         break;
                     case "2.4":
-                        const video360p = findItem("Video", "SD"); // Assuming SD is 360p
-                        if (!video360p) return await reply("❌ 360p video not available!");
-                        downloadUrl = video360p.url;
-                        type = { 
-                            video: { url: downloadUrl }, 
-                            caption: videoInfo.title,
-                            fileName: fileName
-                        };
+                        type = { video: { url: findItem("Video", "SD")?.url }, caption: videoInfo.title };
                         break;
                     case "2.5":
-                        const video240p = findItem("Video", "SD"); // Assuming SD is 240p
-                        if (!video240p) return await reply("❌ 240p video not available!");
-                        downloadUrl = video240p.url;
-                        type = { 
-                            video: { url: downloadUrl }, 
-                            caption: videoInfo.title,
-                            fileName: fileName
-                        };
+                        type = { video: { url: findItem("Video", "SD")?.url }, caption: videoInfo.title };
                         break;
                     case "2.6":
-                        const video144p = findItem("Video", "SD"); // Assuming SD is 144p
-                        if (!video144p) return await reply("❌ 144p video not available!");
-                        downloadUrl = video144p.url;
-                        type = { 
-                            video: { url: downloadUrl }, 
-                            caption: videoInfo.title,
-                            fileName: fileName
-                        };
+                        type = { video: { url: findItem("Video", "SD")?.url }, caption: videoInfo.title };
                         break;
                     default:
                         return await reply("❌ Invalid choice! Please reply with one of the provided options.");
                 }
 
-                msg = await conn.sendMessage(from, { text: "⏳ Downloading..." }, { quoted: mek });
+                msg = await conn.sendMessage(from, { text: "⏳ Downloading Video..." }, { quoted: mek });
                 await conn.sendMessage(from, type, { quoted: mek });
                 await conn.sendMessage(from, { text: '✅ Download Successful ✅', edit: msg.key });
 
@@ -198,11 +155,7 @@ cmd({
         };
 
         conn.ev.on('messages.upsert', replyHandler);
-
-        // Set timeout to remove listener if no response
-        setTimeout(() => {
-            conn.ev.off('messages.upsert', replyHandler);
-        }, 60000); // 1 minute timeout
+        setTimeout(() => conn.ev.off('messages.upsert', replyHandler), 60000);
 
     } catch (error) {
         console.error(error);
@@ -210,3 +163,39 @@ cmd({
         await reply(`❌ *An error occurred:* ${error.message || "Error!"}`);
     }
 });
+
+
+// Helper: download .m4a and convert to .mp3
+async function sendAsMp3(conn, from, downloadUrl, fileName, mek) {
+    const tempInput = path.join(tmpdir(), `${Date.now()}.m4a`);
+    const tempOutput = path.join(tmpdir(), `${Date.now()}.mp3`);
+
+    // download m4a
+    const writer = fs.createWriteStream(tempInput);
+    const response = await axios({ url: downloadUrl, method: "GET", responseType: "stream" });
+    response.data.pipe(writer);
+    await new Promise((resolve, reject) => {
+        writer.on("finish", resolve);
+        writer.on("error", reject);
+    });
+
+    // convert to mp3
+    await new Promise((resolve, reject) => {
+        ffmpeg(tempInput)
+            .toFormat('mp3')
+            .save(tempOutput)
+            .on('end', resolve)
+            .on('error', reject);
+    });
+
+    // send mp3
+    await conn.sendMessage(from, { 
+        audio: { url: tempOutput }, 
+        mimetype: "audio/mpeg", 
+        fileName: fileName 
+    }, { quoted: mek });
+
+    // cleanup
+    fs.unlinkSync(tempInput);
+    fs.unlinkSync(tempOutput);
+}
