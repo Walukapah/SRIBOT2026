@@ -5,6 +5,7 @@ RUN apk add --no-cache \
     python3 \
     make \
     g++ \
+    ffmpeg \
     cairo-dev \
     jpeg-dev \
     pango-dev \
