@@ -1,4 +1,3 @@
-පහත cmd එකේ වැඩ කරන විදියට m.replyList එක හදලා දෙන්න
 
 const { cmd } = require('../command');
 const config = require('../config');
