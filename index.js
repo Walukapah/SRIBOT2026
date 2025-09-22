@@ -720,6 +720,29 @@ if (config.READ_MESSAGE === true) {
         const reply = (teks) => {
             conn.sendMessage(from, { text: teks }, { quoted: mek })
         }
+        
+        // index.js - message handler එකට අතිරේක කරන්න
+if (m.type === 'listResponseMessage') {
+    const selectedCommand = m.message.listResponseMessage.title;
+    if (selectedCommand) {
+        // Remove prefix if present
+        const cmdName = selectedCommand.replace(config.PREFIX, '').toLowerCase();
+        const cmd = events.commands.find((cmd) => 
+            cmd.pattern === cmdName || (cmd.alias && cmd.alias.includes(cmdName))
+        );
+        
+        if (cmd) {
+            try {
+                cmd.function(conn, mek, m, {from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+            } catch (e) {
+                console.error("[SECTION MENU ERROR] " + e);
+                reply("❌ Command execution failed");
+            }
+        }
+    }
+}
+
+
 
         if(!isOwner) {  // Fixed redundant condition
     if(config.ANTI_DELETE === "true") {
