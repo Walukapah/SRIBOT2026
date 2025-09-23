@@ -116,7 +116,7 @@ await conn.sendMessage(from, {
     sections: sections,
     headerType: 4,
     image: { 
-        url: config.MENU_IMG_URL || "https://files.catbox.moe/kus7ix.jpg" 
+        url: "https://files.catbox.moe/kus7ix.jpg" 
     }
 }, {
     quoted: m
