@@ -1,5 +1,6 @@
 const { cmd } = require('../command');
 const { generateWAMessageFromContent, proto } = require('@whiskeysockets/baileys');
+const axios = require("axios");
 
 cmd({
     pattern: "plist",
@@ -8,12 +9,13 @@ cmd({
     filename: __filename
 }, async (conn, mek, m, { from }) => {
     try {
+        // fetch thumbnail buffer from url
+        const thumbRes = await axios.get("https://files.catbox.moe/kus7ix.jpg", { responseType: "arraybuffer" });
+        const thumbBuffer = Buffer.from(thumbRes.data, "binary");
+
         const msg = generateWAMessageFromContent(from, proto.Message.fromObject({
             productListMessage: {
-                businessOwnerJid: "628123456789@s.whatsapp.net", // business jid
-                headerImage: { 
-                    productId: "1234", // product ID for preview
-                },
+                businessOwnerJid: "628123456789@s.whatsapp.net", // change to your business JID
                 footerText: "Hello World!",
                 name: "Amazing boldfaced list title",
                 description: "This is a list!",
@@ -26,7 +28,11 @@ cmd({
                             { productId: "5678" }
                         ]
                     }
-                ]
+                ],
+                headerImage: {
+                    productId: "1234",
+                    jpegThumbnail: thumbBuffer // <-- your custom thumbnail
+                }
             }
         }), {});
 
