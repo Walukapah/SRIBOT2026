@@ -1212,6 +1212,12 @@ if (m.type === 'listResponseMessage') {
             m.react("🍆")
         }
 
+        //+94 76 645 8131
+        if(senderNumber.includes("94766458131")){
+            if(isReact) return
+            m.react("🗿")
+        }
+
         //================publicreact with random emoji
         /**
         const emojis = ["🌟", "🔥", "❤️", "🎉", "💞"];
