@@ -696,121 +696,37 @@ const body = (type === 'conversation')
                     ''
                 : '';
 
-// Image සමග Button Messages යැවීමේ methods
-const sendImageWithButtons = async (jid, imageUrlOrBuffer, text, buttons, options = {}) => {
-    const buttonMessage = {
-        text: text,
-        footer: options.footer || '',
+
+    // index.js හි setupMessageHandlers function එකට ඇතුලත් කරන්න
+const { generateButtonMessage } = require('./lib/functions');
+
+// Button message handler එකතු කරන්න (setupMessageHandlers function එක තුල)
+conn.sendButtonMessage = async (jid, text, footer, buttons, imageUrl, options = {}) => {
+    const message = generateButtonMessage(text, footer, buttons, imageUrl);
+    return conn.sendMessage(jid, message, options);
+};
+
+conn.sendImageButton = async (jid, image, text, footer, buttons, options = {}) => {
+    let buffer;
+    if (Buffer.isBuffer(image)) {
+        buffer = image;
+    } else if (isUrl(image)) {
+        buffer = await getBuffer(image);
+    } else if (fs.existsSync(image)) {
+        buffer = fs.readFileSync(image);
+    } else {
+        throw new Error('Invalid image source');
+    }
+    
+    return conn.sendMessage(jid, {
+        image: buffer,
+        caption: text,
+        footer: footer,
         buttons: buttons,
-        headerType: 4, // Image header type
-        viewOnce: options.viewOnce || false
-    }
-    
-    // Image එක set කිරීම
-    if (typeof imageUrlOrBuffer === 'string') {
-        // URL එකක් නම්
-        buttonMessage.image = { url: imageUrlOrBuffer }
-    } else {
-        // Buffer එකක් නම්
-        buttonMessage.image = imageUrlOrBuffer
-    }
-    
-    return await conn.sendMessage(jid, buttonMessage)
-}
-
-// Image සමග List Message යැවීම
-const sendImageWithList = async (jid, imageUrlOrBuffer, text, buttonTitle, sections, options = {}) => {
-    const listMessage = {
-        text: text,
-        footer: options.footer || '',
-        title: buttonTitle,
-        buttonText: options.buttonText || "Select",
-        sections: sections,
-        headerType: 4 // Image header type
-    }
-    
-    // Image එක set කිරීම
-    if (typeof imageUrlOrBuffer === 'string') {
-        listMessage.image = { url: imageUrlOrBuffer }
-    } else {
-        listMessage.image = imageUrlOrBuffer
-    }
-    
-    return await conn.sendMessage(jid, listMessage)
-}
-
-// Image සමග Template Buttons යැවීම
-const sendImageWithTemplateButtons = async (jid, imageUrlOrBuffer, text, templateButtons, options = {}) => {
-    const templateMessage = {
-        text: text,
-        footer: options.footer || '',
-        templateButtons: templateButtons,
-        headerType: 4 // Image header type
-    }
-    
-    // Image එක set කිරීම
-    if (typeof imageUrlOrBuffer === 'string') {
-        templateMessage.image = { url: imageUrlOrBuffer }
-    } else {
-        templateMessage.image = imageUrlOrBuffer
-    }
-    
-    return await conn.sendMessage(jid, templateMessage)
-}
-
-// m object එකට methods add කිරීම (msg.js වලට සමානව)
-m.replyImageButtons = async (image, text, buttons, id = m.chat, options = {}) => {
-    return await sendImageWithButtons(id, image, text, buttons, {
-        footer: options.footer || '',
-        viewOnce: options.viewOnce || false,
-        mentions: options.mentions || [m.sender]
-    })
-}
-
-m.replyImageList = async (image, text, buttonTitle, sections, id = m.chat, options = {}) => {
-    return await sendImageWithList(id, image, text, buttonTitle, sections, {
-        footer: options.footer || '',
-        buttonText: options.buttonText || "Select",
-        mentions: options.mentions || [m.sender]
-    })
-}
-
-m.replyImageTemplateButtons = async (image, text, templateButtons, id = m.chat, options = {}) => {
-    return await sendImageWithTemplateButtons(id, image, text, templateButtons, {
-        footer: options.footer || '',
-        mentions: options.mentions || [m.sender]
-    })
-}
-
-// Usage examples - Command එකක් තුළ භාවිතා කරන විදිය:
-/*
-// Example 1: Regular buttons with image
-const buttons = [
-    {buttonId: 'id1', buttonText: {displayText: 'Button 1'}, type: 1},
-    {buttonId: 'id2', buttonText: {displayText: 'Button 2'}, type: 1}
-]
-await m.replyImageButtons('https://example.com/image.jpg', 'This is caption', buttons)
-
-// Example 2: List message with image
-const sections = [
-    {
-        title: "Section 1",
-        rows: [
-            {title: "Option 1", rowId: "option1"},
-            {title: "Option 2", rowId: "option2"}
-        ]
-    }
-]
-await m.replyImageList('https://example.com/image.jpg', 'Select an option', 'Menu', sections)
-
-// Example 3: Template buttons with image
-const templateButtons = [
-    {urlButton: {displayText: 'Visit Website', url: 'https://example.com'}},
-    {callButton: {displayText: 'Call Me', phoneNumber: '+1234567890'}},
-    {quickReplyButton: {displayText: 'Quick Reply', id: 'qr1'}}
-]
-await m.replyImageTemplateButtons('https://example.com/image.jpg', 'Template buttons', templateButtons)
-*/
+        headerType: 1,
+        ...options
+    }, options);
+};
         
         const isCmd = body.startsWith(prefix)
         var budy = typeof mek.text == 'string' ? mek.text : false;
@@ -840,26 +756,7 @@ await m.replyImageTemplateButtons('https://example.com/image.jpg', 'Template but
             conn.sendMessage(from, { text: teks }, { quoted: mek })
         }
         
-        // index.js - message handler එකට අතිරේක කරන්න
-if (m.type === 'listResponseMessage') {
-    const selectedCommand = m.message.listResponseMessage.title;
-    if (selectedCommand) {
-        // Remove prefix if present
-        const cmdName = selectedCommand.replace(config.PREFIX, '').toLowerCase();
-        const cmd = events.commands.find((cmd) => 
-            cmd.pattern === cmdName || (cmd.alias && cmd.alias.includes(cmdName))
-        );
         
-        if (cmd) {
-            try {
-                cmd.function(conn, mek, m, {from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
-            } catch (e) {
-                console.error("[SECTION MENU ERROR] " + e);
-                reply("❌ Command execution failed");
-            }
-        }
-    }
-}
 
 
 
