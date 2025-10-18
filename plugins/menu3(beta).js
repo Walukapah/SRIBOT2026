@@ -1,129 +1,54 @@
 const { cmd } = require('../command');
 const config = require('../config');
+const moment = require('moment-timezone');
+const os = require('os');
+
+// Global variables from index.js (simulate)
+const activeSockets = new Map();
 
 cmd({
     pattern: "menu3",
-    desc: "Show interactive menu with buttons",
-    category: "general",
+    desc: "Show bot menu with buttons",
+    category: "main",
     filename: __filename
-}, async (conn, mek, m, { from, sender, reply }) => {
+}, async (conn, mek, m, { from, sender, pushname, reply, isGroup }) => {
     try {
-        const startTime = conn.creationTime || Date.now();
-        const uptime = Math.floor((Date.now() - startTime) / 1000);
-        const hours = Math.floor(uptime / 3600);
-        const minutes = Math.floor((uptime % 3600) / 60);
-        const seconds = Math.floor(uptime % 60);
-        
-        const menuText = `*${config.BOT_NAME} - Interactive Menu* 🚀\n\n` +
-            `╭─⊷ *BOT STATUS*\n` +
-            `│ • Name: ${config.BOT_NAME}\n` +
-            `│ • Version: 3.0.0\n` +
-            `│ • Platform: ${config.PLATFORM || 'Node.js'}\n` +
-            `│ • Uptime: ${hours}h ${minutes}m ${seconds}s\n` +
-            `╰─────────────\n\n` +
-            `*Select an option from the list below:*`;
+        const text = `*🪷 හායි ${pushname}!* 
 
-        const sections = [
+මම *${config.BOT_NAME}* - Multi-Number WhatsApp Bot එකක්. 
+මගේ මෙහෙයවීම යටතේ *${activeSockets.size}* අංක ක්‍රියාත්මකව පවතී.
+
+▢ *Prefix:* ${config.PREFIX}
+▢ *Mode:* ${config.MODE}
+▢ *Version:* ${config.VERSION}
+
+පහත බටනය භාවිතා කර මගේ සියලුම විධාන දකින්න.`;
+
+        const footer = `© ${config.BOT_NAME} • ${moment().format('YYYY')}`;
+        const imageUrl = config.MENU_IMG_URL || "https://i.imgur.com/r3GZeiX.jpeg";
+        
+        const buttons = [
             {
-                title: "🔧 MAIN COMMANDS",
-                rows: [
-                    { 
-                        title: "🤖 BOT STATUS", 
-                        description: "Show bot information and stats", 
-                        rowId: `${config.PREFIX}alive`
-                    },
-                    { 
-                        title: "💻 SYSTEM INFO", 
-                        description: "Show system details and performance", 
-                        rowId: `${config.PREFIX}system`
-                    },
-                    { 
-                        title: "📊 PING TEST", 
-                        description: "Check bot response time", 
-                        rowId: `${config.PREFIX}ping`
-                    }
-                ]
+                buttonId: `${config.PREFIX}list`,
+                buttonText: { displayText: "📋 All Commands" },
+                type: 1
             },
             {
-                title: "🎵 MEDIA DOWNLOAD",
-                rows: [
-                    { 
-                        title: "🎶 DOWNLOAD SONG", 
-                        description: "Download audio from YouTube", 
-                        rowId: `${config.PREFIX}song`
-                    },
-                    { 
-                        title: "🎬 DOWNLOAD VIDEO", 
-                        description: "Download video from YouTube", 
-                        rowId: `${config.PREFIX}video`
-                    },
-                    { 
-                        title: "🖼️ DOWNLOAD IMAGE", 
-                        description: "Download images from various sources", 
-                        rowId: `${config.PREFIX}image`
-                    }
-                ]
+                buttonId: `${config.PREFIX}owner`,
+                buttonText: { displayText: "👑 Owner" },
+                type: 1
             },
             {
-                title: "⚙️ BOT CONTROLS",
-                rows: [
-                    { 
-                        title: "👤 OWNER INFO", 
-                        description: "Contact bot owner", 
-                        rowId: `${config.PREFIX}owner`
-                    },
-                    { 
-                        title: "⚙️ PREFERENCES", 
-                        description: "Change bot settings", 
-                        rowId: `${config.PREFIX}preferences`
-                    },
-                    { 
-                        title: "📢 JOIN CHANNEL", 
-                        description: "Get our channel link", 
-                        rowId: `${config.PREFIX}channel`
-                    }
-                ]
-            },
-            {
-                title: "🎮 FUN & GAMES",
-                rows: [
-                    { 
-                        title: "🎯 FUN COMMANDS", 
-                        description: "Entertainment and games", 
-                        rowId: `${config.PREFIX}fun`
-                    },
-                    { 
-                        title: "🔍 SEARCH", 
-                        description: "Search various content", 
-                        rowId: `${config.PREFIX}search`
-                    },
-                    { 
-                        title: "🛠️ TOOLS", 
-                        description: "Utility tools and converters", 
-                        rowId: `${config.PREFIX}tools`
-                    }
-                ]
+                buttonId: `${config.PREFIX}stats`,
+                buttonText: { displayText: "📊 Stats" },
+                type: 1
             }
         ];
 
-        // List Message එකක් ලෙස යැවීම
-        // Image සමග List Message
-await conn.sendMessage(from, {
-    text: menuText,
-    footer: `© ${config.BOT_NAME}`,
-    title: `🌟 ${config.BOT_NAME} MENU`,
-    buttonText: "📋 OPEN MENU",
-    sections: sections,
-    headerType: 4,
-    image: { 
-        url: "https://files.catbox.moe/kus7ix.jpg" 
-    }
-}, {
-    quoted: m
-});
-
+        await conn.sendButtonMessage(from, text, footer, buttons, imageUrl, { quoted: mek });
+        
     } catch (error) {
-        console.error("Error in menu3 command:", error);
-        await reply("❌ Failed to display menu. Please try again later.");
+        console.error('Menu error:', error);
+        reply('❌ Error displaying menu. Please try again.');
     }
 });
