@@ -33,7 +33,7 @@ const crypto = require('crypto');
 const moment = require('moment-timezone');
 
 // Load config with per-number support
-const { getConfig, baseConfig, setCurrentNumber } = require('./config');
+const config = require('./config');
 const l = console.log;
 const P = require('pino');
 const express = require('express');
@@ -46,8 +46,10 @@ const qrcode = require('qrcode-terminal');
 const util = require('util');
 const { sms, downloadMediaMessage } = require('./lib/msg');
 const axios = require('axios');
-const prefix = baseConfig.PREFIX;
-const ownerNumber = baseConfig.OWNER_NUMBER;
+
+// Use dynamic config
+const prefix = config.PREFIX;
+const ownerNumber = config.OWNER_NUMBER;
 const port = process.env.PORT || 8000;
 
 // GitHub Configuration
@@ -120,9 +122,9 @@ async function saveNumbersToGitHub(numbers) {
             sha: sha || undefined,
         });
 
-        console.log("numbers.json updated on GitHub");
+        console.log("✅ numbers.json updated on GitHub");
     } catch (err) {
-        console.error("Failed to save numbers to GitHub:", err);
+        console.error("❌ Failed to save numbers to GitHub:", err);
     }
 }
 
@@ -348,6 +350,9 @@ async function connectToWAMulti(number, res = null) {
 
     console.log(`Connecting WhatsApp bot for number: ${sanitizedNumber}...`);
 
+    // Set default number for config context
+    config.setDefaultNumber(sanitizedNumber);
+
     await cleanDuplicateFiles(sanitizedNumber);
 
     // Try to restore session from GitHub first
@@ -429,10 +434,10 @@ async function connectToWAMulti(number, res = null) {
                             
                             if (typeof plugin === 'function') {
                                 plugin(conn);
-                                console.log(`Loaded plugin: ${pluginFile}`);
+                                console.log(`✓ Loaded plugin: ${pluginFile}`);
                             }
                         } catch (pluginError) {
-                            console.error(`Failed to load plugin ${pluginFile}:`, pluginError);
+                            console.error(`✗ Failed to load plugin ${pluginFile}:`, pluginError);
                         }
                     }
                     console.log(`All plugins loaded successfully for ${sanitizedNumber}`);
@@ -450,7 +455,7 @@ async function connectToWAMulti(number, res = null) {
                 const caption = formatMessage(
                     '*Connected Successful ✅*',
                     `📞 Number: ${sanitizedNumber}\n🩵 Status: Online\n💾 Session: Saved to GitHub`,
-                    `${baseConfig.BOT_NAME}`
+                    `${config.BOT_NAME}`
                 );
 
                 for (const admin of admins) {
@@ -506,17 +511,13 @@ async function connectToWAMulti(number, res = null) {
 // ============================================
 
 function setupMessageHandlers(conn, number) {
-    // IMPORTANT: Set current number for config context
-    // This ensures all config access uses the correct user-specific config
-    setCurrentNumber(number);
+    // Set global context for this number so config.js can access it
+    global.currentBotNumber = number;
     
     conn.ev.on('messages.upsert', async (mek) => {
         mek = mek.messages[0];
         if (!mek.message) return;
         mek.message = (getContentType(mek.message) === 'ephemeralMessage') ? mek.message.ephemeralMessage.message : mek.message;
-
-        // Get user-specific config for this number
-        const config = await getConfig(number);
 
         const reset = "\x1b[0m";
         const red = "\x1b[31m";
@@ -530,7 +531,7 @@ function setupMessageHandlers(conn, number) {
         console.log(cyan + JSON.stringify(mek, null, 2) + reset);
         console.log(red + "☰".repeat(32) + reset);
 
-        // Auto mark as seen and read (using user-specific config)
+        // Auto mark as seen and read (using dynamic config)
         if (config.READ_MESSAGE === true) {
             try {
                 const from = mek.key.remoteJid;
@@ -543,13 +544,13 @@ function setupMessageHandlers(conn, number) {
                 // Read (blue tick ✓✓)
                 await conn.readMessages([{ remoteJid: from, id: id, participant: participant }]);
 
-                console.log(blue + `Marked message from ${from} as seen & read for ${number}.` + reset);
+                console.log(blue + `✅ Marked message from ${from} as seen & read for ${number}.` + reset);
             } catch (error) {
-                console.error(red + `Error marking message as seen/read for ${number}:`, error + reset);
+                console.error(red + `❌ Error marking message as seen/read for ${number}:`, error + reset);
             }
         }
 
-        // Status updates handling (using user-specific config)
+        // Status updates handling (using dynamic config)
         if (mek.key && mek.key.remoteJid === 'status@broadcast') {
             // Auto read Status
             if (config.AUTO_READ_STATUS === "true") {
@@ -674,7 +675,7 @@ function setupMessageHandlers(conn, number) {
             conn.sendMessage(from, { text: teks }, { quoted: mek });
         }
 
-        // ANTI-DELETE SYSTEM (using user-specific config)
+        // ANTI-DELETE SYSTEM (using dynamic config)
         if(!isOwner) {
             if(config.ANTI_DELETE === "true") {
                 if (!m.id.startsWith("BAE5")) {
@@ -985,7 +986,7 @@ function setupMessageHandlers(conn, number) {
             }
         }
 
-        // WORK TYPE (using user-specific config)
+        // WORK TYPE (using dynamic config)
         if (config.MODE === "private" && !isOwner) return;
         if (config.MODE === "inbox" && isGroup) return;
         if (config.MODE === "groups" && !isGroup) return;
