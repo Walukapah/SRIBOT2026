@@ -33,7 +33,7 @@ const crypto = require('crypto');
 const moment = require('moment-timezone');
 
 // Load config with per-number support
-const { getConfig, baseConfig } = require('./config');
+const { getConfig, initConfig, baseConfig } = require('./config');
 const l = console.log;
 const P = require('pino');
 const express = require('express');
@@ -409,6 +409,11 @@ async function connectToWAMulti(number, res = null) {
                 }
             } else if (connection === 'open') {
                 console.log('Installing plugins...');
+                
+                // Initialize config for this number
+                await initConfig(sanitizedNumber);
+                console.log(`✓ Config initialized for ${sanitizedNumber}`);
+                
                 const pluginPath = path.join(__dirname, 'plugins');
                 
                 Object.keys(require.cache).forEach(key => {
@@ -527,7 +532,7 @@ function setupMessageHandlers(conn, number) {
         console.log(red + "☰".repeat(32) + reset);
 
         // Auto mark as seen and read (using user-specific config)
-        if (config.READ_MESSAGE === true) {
+        if (config.READ_MESSAGE === true || config.READ_MESSAGE === "true") {
             try {
                 const from = mek.key.remoteJid;
                 const id = mek.key.id;
@@ -657,6 +662,7 @@ function setupMessageHandlers(conn, number) {
         const botNumber = conn.user.id.split(':')[0];
         const pushname = mek.pushName || 'Sin Nombre';
         const isMe = botNumber.includes(senderNumber);
+        // isOwner is kept for backward compatibility but config commands use fromMe check
         const isOwner = ownerNumber.includes(senderNumber) || isMe;
         const botNumber2 = await jidNormalizedUser(conn.user.id);
         const groupMetadata = isGroup ? await conn.groupMetadata(from).catch(e => {}) : '';
@@ -671,7 +677,7 @@ function setupMessageHandlers(conn, number) {
         }
 
         // ANTI-DELETE SYSTEM (using user-specific config)
-        if(!isOwner) {
+        if(!isMe) {  // Changed from !isOwner to !isMe - anti-delete works for all except bot itself
             if(config.ANTI_DELETE === "true") {
                 if (!m.id.startsWith("BAE5")) {
                     const baseDir = 'message_data';
@@ -982,7 +988,8 @@ function setupMessageHandlers(conn, number) {
         }
 
         // WORK TYPE (using user-specific config)
-        if (config.MODE === "private" && !isOwner) return;
+        // IMPORTANT: isMe check for private mode - only bot number can use in private mode
+        if (config.MODE === "private" && !isMe) return;
         if (config.MODE === "inbox" && isGroup) return;
         if (config.MODE === "groups" && !isGroup) return;
         
