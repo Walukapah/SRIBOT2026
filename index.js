@@ -32,87 +32,8 @@ const { Octokit } = require('@octokit/rest');
 const crypto = require('crypto');
 const moment = require('moment-timezone');
 
-// ============================================
-// CONFIG LOADING - FIXED VERSION
-// ============================================
-
-// Load config module safely
-let configModule;
-try {
-    configModule = require('./config');
-    console.log('✅ Config module loaded successfully');
-    console.log('Config module exports:', Object.keys(configModule));
-} catch (e) {
-    console.error('❌ Failed to load config module:', e);
-    // Create minimal fallback
-    configModule = {
-        PREFIX: '.',
-        BOT_NAME: 'SRI-BOT 🇱🇰',
-        OWNER_NUMBER: ['94728115797'],
-        MODE: 'public',
-        VERSION: '1.0.0',
-        getConfig: async (num) => ({
-            PREFIX: '.',
-            BOT_NAME: 'SRI-BOT 🇱🇰',
-            OWNER_NUMBER: ['94728115797'],
-            MODE: 'public',
-            VERSION: '1.0.0',
-            AUTO_READ_STATUS: 'true',
-            AUTO_REACT_STATUS: 'true',
-            AUTO_REACT_STATUS_EMOJI: '❤️',
-            ANTI_DELETE: 'true',
-            READ_MESSAGE: 'true',
-            MENU_TYPE: 'big',
-            MENU_FONT: 'tiny'
-        }),
-        initConfig: async (num) => ({}),
-        updateConfig: async (num, updates) => ({ success: true }),
-        resetConfig: async (num) => ({ success: true }),
-        refreshConfig: async (num) => ({}),
-        getConfigValue: async (num, key) => null,
-        validateConfigValue: (key, value) => ({ valid: true, value, type: 'string' }),
-        getConfigKeys: () => ({}),
-        defaultConfig: {
-            PREFIX: '.',
-            BOT_NAME: 'SRI-BOT 🇱🇰',
-            OWNER_NUMBER: ['94728115797'],
-            MODE: 'public',
-            VERSION: '1.0.0'
-        }
-    };
-}
-
-// Extract config values safely
-const baseConfig = configModule.defaultConfig || configModule;
-
-// Validate baseConfig has required properties
-if (!baseConfig.PREFIX) {
-    console.error('⚠️ baseConfig.PREFIX undefined, using fallback');
-    baseConfig.PREFIX = '.';
-}
-if (!baseConfig.OWNER_NUMBER) {
-    console.error('⚠️ baseConfig.OWNER_NUMBER undefined, using fallback');
-    baseConfig.OWNER_NUMBER = ['94728115797'];
-}
-
-// Extract functions
-const getConfig = configModule.getConfig;
-const initConfig = configModule.initConfig;
-const updateConfig = configModule.updateConfig;
-const resetConfig = configModule.resetConfig;
-const refreshConfig = configModule.refreshConfig;
-const getConfigValue = configModule.getConfigValue;
-const validateConfigValue = configModule.validateConfigValue;
-const getConfigKeys = configModule.getConfigKeys;
-
-// Global settings from baseConfig
-const prefix = baseConfig.PREFIX;
-const ownerNumber = baseConfig.OWNER_NUMBER;
-const port = process.env.PORT || 8000;
-
-console.log(`🔧 Base Config Loaded: PREFIX=${prefix}, MODE=${baseConfig.MODE}`);
-
-// Other imports
+// Load config with per-number support
+const { getConfig, baseConfig } = require('./config');
 const l = console.log;
 const P = require('pino');
 const express = require('express');
@@ -125,6 +46,9 @@ const qrcode = require('qrcode-terminal');
 const util = require('util');
 const { sms, downloadMediaMessage } = require('./lib/msg');
 const axios = require('axios');
+const prefix = baseConfig.PREFIX;
+const ownerNumber = baseConfig.OWNER_NUMBER;
+const port = process.env.PORT || 8000;
 
 // GitHub Configuration
 const octokit = new Octokit({
@@ -485,15 +409,6 @@ async function connectToWAMulti(number, res = null) {
                 }
             } else if (connection === 'open') {
                 console.log('Installing plugins...');
-                
-                // Initialize config for this number
-                try {
-                    await initConfig(sanitizedNumber);
-                    console.log(`✓ Config initialized for ${sanitizedNumber}`);
-                } catch (configError) {
-                    console.error(`Failed to init config for ${sanitizedNumber}:`, configError);
-                }
-                
                 const pluginPath = path.join(__dirname, 'plugins');
                 
                 Object.keys(require.cache).forEach(key => {
@@ -535,7 +450,7 @@ async function connectToWAMulti(number, res = null) {
                 const caption = formatMessage(
                     '*Connected Successful ✅*',
                     `📞 Number: ${sanitizedNumber}\n🩵 Status: Online\n💾 Session: Saved to GitHub`,
-                    `${baseConfig.BOT_NAME || 'SRI-BOT'}`
+                    `${baseConfig.BOT_NAME}`
                 );
 
                 for (const admin of admins) {
@@ -597,14 +512,7 @@ function setupMessageHandlers(conn, number) {
         mek.message = (getContentType(mek.message) === 'ephemeralMessage') ? mek.message.ephemeralMessage.message : mek.message;
 
         // Get user-specific config for this number
-        let config;
-        try {
-            config = await getConfig(number);
-        } catch (configError) {
-            console.error(`Failed to get config for ${number}:`, configError);
-            // Use baseConfig as fallback
-            config = baseConfig;
-        }
+        const config = await getConfig(number);
 
         const reset = "\x1b[0m";
         const red = "\x1b[31m";
@@ -619,7 +527,7 @@ function setupMessageHandlers(conn, number) {
         console.log(red + "☰".repeat(32) + reset);
 
         // Auto mark as seen and read (using user-specific config)
-        if (config.READ_MESSAGE === true || config.READ_MESSAGE === "true") {
+        if (config.READ_MESSAGE === true) {
             try {
                 const from = mek.key.remoteJid;
                 const id = mek.key.id;
@@ -735,9 +643,9 @@ function setupMessageHandlers(conn, number) {
             }, options);
         };
         
-        const isCmd = body.startsWith(config.PREFIX || '.');
+        const isCmd = body.startsWith(config.PREFIX);
         var budy = typeof mek.text == 'string' ? mek.text : false;
-        const command = isCmd ? body.slice((config.PREFIX || '.').length).trim().split(' ').shift().toLowerCase() : '';
+        const command = isCmd ? body.slice(config.PREFIX.length).trim().split(' ').shift().toLowerCase() : '';
         const args = body.trim().split(/ +/).slice(1);
         const q = args.join(' ');
         const text = args.join(' ');
@@ -749,8 +657,7 @@ function setupMessageHandlers(conn, number) {
         const botNumber = conn.user.id.split(':')[0];
         const pushname = mek.pushName || 'Sin Nombre';
         const isMe = botNumber.includes(senderNumber);
-        // isOwner for backward compatibility
-        const isOwner = (ownerNumber || []).includes(senderNumber) || isMe;
+        const isOwner = ownerNumber.includes(senderNumber) || isMe;
         const botNumber2 = await jidNormalizedUser(conn.user.id);
         const groupMetadata = isGroup ? await conn.groupMetadata(from).catch(e => {}) : '';
         const groupName = isGroup ? groupMetadata.subject : '';
@@ -764,7 +671,7 @@ function setupMessageHandlers(conn, number) {
         }
 
         // ANTI-DELETE SYSTEM (using user-specific config)
-        if(!isMe) {
+        if(!isOwner) {
             if(config.ANTI_DELETE === "true") {
                 if (!m.id.startsWith("BAE5")) {
                     const baseDir = 'message_data';
@@ -1075,8 +982,7 @@ function setupMessageHandlers(conn, number) {
         }
 
         // WORK TYPE (using user-specific config)
-        // IMPORTANT: Bot number only for private mode
-        if (config.MODE === "private" && !isMe) return;
+        if (config.MODE === "private" && !isOwner) return;
         if (config.MODE === "inbox" && isGroup) return;
         if (config.MODE === "groups" && !isGroup) return;
         
