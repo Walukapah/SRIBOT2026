@@ -33,7 +33,7 @@ const crypto = require('crypto');
 const moment = require('moment-timezone');
 
 // Load config with per-number support
-const { getConfig, baseConfig } = require('./config');
+const { getConfig, baseConfig, setCurrentNumber } = require('./config');
 const l = console.log;
 const P = require('pino');
 const express = require('express');
@@ -120,9 +120,9 @@ async function saveNumbersToGitHub(numbers) {
             sha: sha || undefined,
         });
 
-        console.log("✅ numbers.json updated on GitHub");
+        console.log("numbers.json updated on GitHub");
     } catch (err) {
-        console.error("❌ Failed to save numbers to GitHub:", err);
+        console.error("Failed to save numbers to GitHub:", err);
     }
 }
 
@@ -429,10 +429,10 @@ async function connectToWAMulti(number, res = null) {
                             
                             if (typeof plugin === 'function') {
                                 plugin(conn);
-                                console.log(`✓ Loaded plugin: ${pluginFile}`);
+                                console.log(`Loaded plugin: ${pluginFile}`);
                             }
                         } catch (pluginError) {
-                            console.error(`✗ Failed to load plugin ${pluginFile}:`, pluginError);
+                            console.error(`Failed to load plugin ${pluginFile}:`, pluginError);
                         }
                     }
                     console.log(`All plugins loaded successfully for ${sanitizedNumber}`);
@@ -506,6 +506,10 @@ async function connectToWAMulti(number, res = null) {
 // ============================================
 
 function setupMessageHandlers(conn, number) {
+    // IMPORTANT: Set current number for config context
+    // This ensures all config access uses the correct user-specific config
+    setCurrentNumber(number);
+    
     conn.ev.on('messages.upsert', async (mek) => {
         mek = mek.messages[0];
         if (!mek.message) return;
@@ -539,9 +543,9 @@ function setupMessageHandlers(conn, number) {
                 // Read (blue tick ✓✓)
                 await conn.readMessages([{ remoteJid: from, id: id, participant: participant }]);
 
-                console.log(blue + `✅ Marked message from ${from} as seen & read for ${number}.` + reset);
+                console.log(blue + `Marked message from ${from} as seen & read for ${number}.` + reset);
             } catch (error) {
-                console.error(red + `❌ Error marking message as seen/read for ${number}:`, error + reset);
+                console.error(red + `Error marking message as seen/read for ${number}:`, error + reset);
             }
         }
 
