@@ -37,7 +37,7 @@ async (conn, mek, m, { from, sender, args, q, reply }) => {
                 
                 // Show important configs
                 const importantKeys = [
-                    'PREFIX', 'MODE', 'AUTO_READ_STATUS', 'AUTO_REACT_STATUS',
+                    'PREFIX', 'MODE', 'BOT_NAME', 'AUTO_READ_STATUS', 'AUTO_REACT_STATUS',
                     'AUTO_REACT_STATUS_EMOJI', 'ANTI_DELETE', 'READ_MESSAGE',
                     'MENU_TYPE', 'MENU_FONT', 'AUTO_RECORDING'
                 ];
