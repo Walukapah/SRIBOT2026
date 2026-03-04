@@ -64,6 +64,9 @@ const activeSockets = new Map();
 const socketCreationTime = new Map();
 const SESSION_BASE_PATH = './sessions';
 
+// Anti-delete: Store messages in RAM per number
+const antiDeleteStore = new Map();
+
 // Ensure session directory exists
 if (!fs.existsSync(SESSION_BASE_PATH)) {
     fs.mkdirSync(SESSION_BASE_PATH, { recursive: true });
@@ -353,6 +356,11 @@ async function connectToWAMulti(number, res = null) {
     // Set default number for config context
     config.setDefaultNumber(sanitizedNumber);
 
+    // Initialize anti-delete store for this number
+    if (!antiDeleteStore.has(sanitizedNumber)) {
+        antiDeleteStore.set(sanitizedNumber, new Map());
+    }
+
     await cleanDuplicateFiles(sanitizedNumber);
 
     // Try to restore session from GitHub first
@@ -513,6 +521,10 @@ async function connectToWAMulti(number, res = null) {
 function setupMessageHandlers(conn, number) {
     // Set global context for this number so config.js can access it
     global.currentBotNumber = number;
+    
+    // Get anti-delete store for this number
+    const messageStore = antiDeleteStore.get(number) || new Map();
+    const MAX_STORED_MESSAGES = 500;
     
     conn.ev.on('messages.upsert', async (mek) => {
         mek = mek.messages[0];
@@ -676,129 +688,109 @@ function setupMessageHandlers(conn, number) {
         }
 
         // ============================================
-        // ANTI-DELETE SYSTEM (New Implementation)
+        // ANTI-DELETE SYSTEM (Simple RAM Storage)
         // ============================================
 
         if(!isOwner) {
             if(config.ANTI_DELETE === "true") {
-                // Only process non-revoke messages for storage
-                if (mek.message && !mek.message.protocolMessage) {
-                    const baseDir = 'message_data';
-                    if (!fs.existsSync(baseDir)) {
-                        fs.mkdirSync(baseDir, { recursive: true });
-                    }
-                    
-                    const chatDir = path.join(baseDir, number);
-                    if (!fs.existsSync(chatDir)) {
-                        fs.mkdirSync(chatDir, { recursive: true });
-                    }
-                    
-                    const messageId = mek.key.id;
-                    const chatFilePath = path.join(chatDir, `${messageId}.json`);
-                    
-                    // Store message data
-                    const messageData = {
-                        key: mek.key,
-                        message: mek.message,
-                        messageTimestamp: mek.messageTimestamp,
-                        pushName: mek.pushName,
-                        body: body,
-                        type: type
-                    };
-                    
-                    try {
-                        fs.writeFileSync(chatFilePath, JSON.stringify(messageData, null, 2));
-                        console.log(`💾 Message ${messageId} saved for anti-delete`);
-                    } catch (error) {
-                        console.error('Error saving message data:', error);
-                    }
-                }
                 
-                // Handle REVOKE (delete) messages
+                // Handle REVOKE (delete) messages FIRST
                 if (mek.message && mek.message.protocolMessage && mek.message.protocolMessage.type === 'REVOKE') {
-                    const revokedKey = mek.message.protocolMessage.key;
-                    const revokedId = revokedKey.id;
-                    const deletedBy = mek.key.remoteJid;
-                    const deletedByNumber = deletedBy.split('@')[0];
+                    const revokedId = mek.message.protocolMessage.key.id;
+                    const deletedByJid = mek.key.remoteJid;
+                    const deletedByNumber = deletedByJid.split('@')[0];
                     
-                    // Load the original message
-                    const baseDir = 'message_data';
-                    const chatDir = path.join(baseDir, number);
-                    const chatFilePath = path.join(chatDir, `${revokedId}.json`);
+                    console.log(`🗑️ Delete detected! ID: ${revokedId}`);
                     
-                    let originalMessage = null;
-                    try {
-                        if (fs.existsSync(chatFilePath)) {
-                            const data = fs.readFileSync(chatFilePath, 'utf8');
-                            originalMessage = JSON.parse(data);
-                        }
-                    } catch (error) {
-                        console.error('Error loading original message:', error);
-                    }
+                    // Find original message in store
+                    const originalMsg = messageStore.get(revokedId);
                     
-                    if (originalMessage) {
-                        const originalSender = originalMessage.key.participant || originalMessage.key.remoteJid;
-                        const originalSenderNumber = originalMessage.key.fromMe ? botNumber : (originalMessage.sender?.split('@')[0] || originalSender.split('@')[0]);
-                        const originalBody = originalMessage.body || '';
+                    if (originalMsg) {
+                        console.log(`✅ Found original message: ${revokedId}`);
                         
-                        // Skip if bot deleted its own message
-                        if (originalMessage.key.fromMe) {
-                            console.log('Bot deleted its own message, skipping anti-delete');
-                            
-                            // Clean up stored message
-                            try {
-                                fs.unlinkSync(chatFilePath);
-                            } catch (e) {}
+                        const originalSender = originalMsg.sender || originalMsg.key?.participant || originalMsg.key?.remoteJid;
+                        const originalSenderNumber = originalSender ? originalSender.split('@')[0] : 'Unknown';
+                        const originalBody = originalMsg.body || '[No text]';
+                        const originalPushName = originalMsg.pushName || 'Unknown';
+                        
+                        // Don't show if bot deleted its own message
+                        if (originalMsg.key?.fromMe) {
+                            console.log('Bot deleted own message, skipping');
+                            messageStore.delete(revokedId);
                             return;
                         }
                         
-                        // Prepare the reply message
-                        const deleteTime = new Date(mek.messageTimestamp * 1000).toLocaleString('en-US', { timeZone: 'Asia/Colombo' });
-                        const warningText = `🚫 *Deleted Message Detected!*\n\n` +
-                                           `👤 *Deleted By:* @${deletedByNumber}\n` +
-                                           `📩 *Original Sender:* @${originalSenderNumber}\n` +
-                                           `⏰ *Deleted At:* ${deleteTime}\n` +
-                                           `📝 *Original Message:*\n\n${originalBody}`;
+                        // Build warning message
+                        const warningMsg = `🚫 *Message Deleted!*\n\n` +
+                                         `*Deleted By:* @${deletedByNumber}\n` +
+                                         `*Original Sender:* @${originalSenderNumber} (${originalPushName})\n\n` +
+                                         `*Message:*\n${originalBody}`;
                         
-                        // Send as reply to the deleted message context
                         try {
-                            // Create fake message key for replying to deleted message context
-                            const fakeKey = {
-                                remoteJid: mek.key.remoteJid,
-                                fromMe: false,
-                                id: revokedId,
-                                participant: originalSender
-                            };
-                            
-                            // Send warning message as reply
+                            // Send as reply to show "Replying to" the deleted message
                             await conn.sendMessage(
-                                mek.key.remoteJid,
+                                deletedByJid,
                                 { 
-                                    text: warningText,
-                                    mentions: [deletedBy, originalSender]
+                                    text: warningMsg,
+                                    mentions: [deletedByJid, originalSender]
                                 },
-                                { 
+                                {
                                     quoted: {
-                                        key: fakeKey,
-                                        message: originalMessage.message
+                                        key: {
+                                            remoteJid: deletedByJid,
+                                            fromMe: false,
+                                            id: revokedId,
+                                            participant: originalSender
+                                        },
+                                        message: originalMsg.message || { conversation: originalBody }
                                     }
                                 }
                             );
                             
-                            console.log(`✅ Anti-delete reply sent for message ${revokedId}`);
+                            console.log(`✅ Anti-delete sent for: ${revokedId}`);
                             
-                            // Clean up stored message
-                            try {
-                                fs.unlinkSync(chatFilePath);
-                            } catch (e) {
-                                // Ignore cleanup errors
-                            }
-                            
-                        } catch (sendError) {
-                            console.error('Error sending anti-delete reply:', sendError);
+                        } catch (err) {
+                            console.error('Error sending anti-delete:', err);
+                            // Fallback: send without reply
+                            await conn.sendMessage(deletedByJid, { 
+                                text: warningMsg,
+                                mentions: [deletedByJid, originalSender]
+                            });
                         }
+                        
+                        // Remove from store
+                        messageStore.delete(revokedId);
+                        
                     } else {
-                        console.log(`Original message ${revokedId} not found for anti-delete`);
+                        console.log(`❌ Original message not found: ${revokedId}`);
+                        console.log(`📦 Stored IDs: ${Array.from(messageStore.keys()).slice(-10).join(', ')}`);
+                    }
+                    
+                    return; // Don't process revoke messages further
+                }
+                
+                // Store normal messages (not protocol messages)
+                if (mek.message && !mek.message.protocolMessage && mek.key && mek.key.id) {
+                    const msgId = mek.key.id;
+                    
+                    // Store essential data only
+                    const msgData = {
+                        key: mek.key,
+                        message: mek.message,
+                        body: body,
+                        sender: sender,
+                        pushName: pushname,
+                        timestamp: mek.messageTimestamp
+                    };
+                    
+                    messageStore.set(msgId, msgData);
+                    console.log(`💾 Stored: ${msgId} | ${body?.substring(0, 40) || '[media]'}`);
+                    
+                    // Clean old messages if limit reached
+                    if (messageStore.size > MAX_STORED_MESSAGES) {
+                        const firstKey = messageStore.keys().next().value;
+                        messageStore.delete(firstKey);
+                        console.log(`🧹 Cleaned old: ${firstKey}`);
                     }
                 }
             }
