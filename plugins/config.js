@@ -9,9 +9,17 @@ cmd({
     filename: __filename,
     fromMe: true  // Only bot owner can use this
 },
-async (conn, mek, m, { from, sender, args, q, reply }) => {
+async (conn, mek, m, { from, sender, args, q, reply, isMe }) => {
     try {
         const senderNumber = sender.split('@')[0];
+        const botNumber = conn.user.id.split(':')[0];
+        
+        // STRICT CHECK: Only allow if sender is the bot itself (fromMe check)
+        // isMe is true when message is from the bot number itself
+        if (!isMe) {
+            return reply(`❌ *Access Denied*\n\nThis command can only be used by the bot number itself.\nYou cannot use this command from another number.`);
+        }
+        
         const action = args[0]?.toLowerCase();
         
         if (!action) {
@@ -25,14 +33,14 @@ async (conn, mek, m, { from, sender, args, q, reply }) => {
                 `*.config set AUTO_READ_STATUS false*`);
         }
         
-        // Get current config for this number
-        const currentConfig = await getConfig(senderNumber);
+        // Get current config for this bot number
+        const currentConfig = await getConfig(botNumber);
         
         switch (action) {
             case 'view':
             case 'show':
                 let configText = `*⚙️ CURRENT CONFIGURATION*\n\n` +
-                    `📞 Number: ${senderNumber}\n` +
+                    `📞 Bot Number: ${botNumber}\n` +
                     `🤖 Bot: ${currentConfig.BOT_NAME}\n\n`;
                 
                 // Show important configs
@@ -82,12 +90,13 @@ async (conn, mek, m, { from, sender, args, q, reply }) => {
                     try { parsedValue = JSON.parse(value); } catch(e) {}
                 }
                 
-                // Update config
+                // Update config for BOT NUMBER ONLY
                 const updateData = { [key]: parsedValue };
-                const success = await updateConfig(senderNumber, updateData);
+                const success = await updateConfig(botNumber, updateData);
                 
                 if (success) {
                     return reply(`✅ *Configuration Updated*\n\n` +
+                        `Bot: ${botNumber}\n` +
                         `Key: ${key}\n` +
                         `Value: ${parsedValue}\n` +
                         `Type: ${typeof parsedValue}\n\n` +
@@ -97,9 +106,10 @@ async (conn, mek, m, { from, sender, args, q, reply }) => {
                 }
                 
             case 'reset':
-                const resetSuccess = await resetConfig(senderNumber);
+                const resetSuccess = await resetConfig(botNumber);
                 if (resetSuccess) {
                     return reply(`✅ *Configuration Reset*\n\n` +
+                        `Bot: ${botNumber}\n` +
                         `All settings restored to defaults.\n` +
                         `Restart bot to apply changes.`);
                 } else {
@@ -133,17 +143,23 @@ cmd({
     filename: __filename,
     fromMe: true
 },
-async (conn, mek, m, { from, sender, args, reply }) => {
-    const senderNumber = sender.split('@')[0];
+async (conn, mek, m, { from, sender, args, reply, isMe }) => {
+    const botNumber = conn.user.id.split(':')[0];
+    
+    // STRICT CHECK: Only bot number can use this
+    if (!isMe) {
+        return reply(`❌ This command can only be used by the bot number itself.`);
+    }
+    
     const mode = args[0]?.toLowerCase();
     
     if (!['public', 'private', 'inbox', 'groups'].includes(mode)) {
         return reply(`❌ Invalid mode. Use: public, private, inbox, or groups`);
     }
     
-    const success = await updateConfig(senderNumber, { MODE: mode });
+    const success = await updateConfig(botNumber, { MODE: mode });
     if (success) {
-        return reply(`✅ *Bot mode changed to: ${mode}*\nChanges saved to GitHub`);
+        return reply(`✅ *Bot mode changed to: ${mode}*\nBot: ${botNumber}\nChanges saved to GitHub`);
     }
     reply(`❌ Failed to update mode`);
 });
@@ -156,17 +172,23 @@ cmd({
     filename: __filename,
     fromMe: true
 },
-async (conn, mek, m, { from, sender, args, reply }) => {
-    const senderNumber = sender.split('@')[0];
+async (conn, mek, m, { from, sender, args, reply, isMe }) => {
+    const botNumber = conn.user.id.split(':')[0];
+    
+    // STRICT CHECK: Only bot number can use this
+    if (!isMe) {
+        return reply(`❌ This command can only be used by the bot number itself.`);
+    }
+    
     const newPrefix = args[0];
     
     if (!newPrefix || newPrefix.length > 3) {
         return reply(`❌ Please provide a valid prefix (max 3 characters)`);
     }
     
-    const success = await updateConfig(senderNumber, { PREFIX: newPrefix });
+    const success = await updateConfig(botNumber, { PREFIX: newPrefix });
     if (success) {
-        return reply(`✅ *Prefix changed to: ${newPrefix}*\nChanges saved to GitHub`);
+        return reply(`✅ *Prefix changed to: ${newPrefix}*\nBot: ${botNumber}\nChanges saved to GitHub`);
     }
     reply(`❌ Failed to update prefix`);
 });
