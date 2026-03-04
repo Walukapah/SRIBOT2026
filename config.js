@@ -31,6 +31,18 @@ const baseConfig = {
 
 // User-specific configs storage (in memory)
 const userConfigs = new Map();
+// Store current active number for context
+let currentActiveNumber = null;
+
+// Set current active number (call this when message received)
+function setCurrentNumber(number) {
+    currentActiveNumber = number ? number.replace(/[^0-9]/g, '') : null;
+}
+
+// Get current active number
+function getCurrentNumber() {
+    return currentActiveNumber;
+}
 
 // Get config for specific number (with GitHub integration)
 async function getConfig(number) {
@@ -109,10 +121,10 @@ async function updateConfig(number, newConfig) {
             sha: sha || undefined,
         });
         
-        console.log(`✅ Config updated on GitHub for ${sanitizedNumber}`);
+        console.log(`Config updated on GitHub for ${sanitizedNumber}`);
         return true;
     } catch (error) {
-        console.error('❌ Failed to save config to GitHub:', error);
+        console.error('Failed to save config to GitHub:', error);
         
         // Fallback to local file
         try {
@@ -122,7 +134,7 @@ async function updateConfig(number, newConfig) {
             fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2));
             return true;
         } catch (localError) {
-            console.error('❌ Failed to save config locally:', localError);
+            console.error('Failed to save config locally:', localError);
             return false;
         }
     }
@@ -161,10 +173,41 @@ async function resetConfig(number) {
     }
 }
 
+// Create a Proxy that returns user-specific config based on current context
+const configProxy = new Proxy({}, {
+    get(target, prop) {
+        // If we have a current active number, try to get user-specific config
+        if (currentActiveNumber && userConfigs.has(currentActiveNumber)) {
+            const userConfig = userConfigs.get(currentActiveNumber);
+            if (userConfig[prop] !== undefined) {
+                return userConfig[prop];
+            }
+        }
+        // Fallback to base config
+        return baseConfig[prop];
+    },
+    set(target, prop, value) {
+        // Update the user-specific config if we have an active number
+        if (currentActiveNumber) {
+            const currentConfig = userConfigs.get(currentActiveNumber) || { ...baseConfig };
+            currentConfig[prop] = value;
+            userConfigs.set(currentActiveNumber, currentConfig);
+        }
+        return true;
+    }
+});
+
 module.exports = {
-    ...baseConfig,
+    // Export the proxy as default config - this is what plugins will use
+    ...configProxy,
+    
+    // Also export base config for reference
+    baseConfig,
+    
+    // Export functions
     getConfig,
     updateConfig,
     resetConfig,
-    baseConfig
+    setCurrentNumber,
+    getCurrentNumber
 };
