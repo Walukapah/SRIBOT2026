@@ -234,9 +234,6 @@ async function resetConfig(number) {
         // Update cache
         userConfigs.set(sanitizedNumber, { ...defaultConfig });
         
-        // Delete from GitHub (optional - just overwrite with defaults above)
-        // But keep the file with default values
-        
         return { success: true, config: defaultConfig };
     } catch (error) {
         console.error('Reset config error:', error);
@@ -306,8 +303,11 @@ function getConfigKeys() {
     };
 }
 
+// IMPORTANT: Export everything needed
 module.exports = {
+    // Spread default config so direct access works (config.PREFIX)
     ...defaultConfig,
+    // Named exports for functions
     defaultConfig,
     getConfig,
     updateConfig,
