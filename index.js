@@ -1,4 +1,8 @@
-// For fs.existsSync and fs.mkdirSync
+// ============================================
+// SRI-BOT MULTI-NUMBER WHATSAPP BOT
+// With GitHub Integration & Per-Number Configs
+// ============================================
+
 const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -28,8 +32,9 @@ const { Octokit } = require('@octokit/rest');
 const crypto = require('crypto');
 const moment = require('moment-timezone');
 
-// Load config (assuming config.js exists and has necessary properties)
-const l = console.log
+// Load config with per-number support
+const { getConfig, baseConfig } = require('./config');
+const l = console.log;
 const P = require('pino');
 const express = require('express');
 const app = express();
@@ -37,18 +42,17 @@ const path = require('path');
 const fs = require('fs');
 const fsExtra = require('fs-extra');
 const { getBuffer, getGroupAdmins, getRandom, h2k, isUrl, Json, runtime, sleep, fetchJson } = require('./lib/functions');
-const config = require('./config');
 const qrcode = require('qrcode-terminal');
 const util = require('util');
 const { sms, downloadMediaMessage } = require('./lib/msg');
 const axios = require('axios');
-const prefix = config.PREFIX
-const ownerNumber = config.OWNER_NUMBER
+const prefix = baseConfig.PREFIX;
+const ownerNumber = baseConfig.OWNER_NUMBER;
 const port = process.env.PORT || 8000;
 
 // GitHub Configuration
 const octokit = new Octokit({
-  auth: process.env.GITHUB_TOKEN
+    auth: process.env.GITHUB_TOKEN
 });
 const owner = process.env.GITHUB_REPO_OWNER || 'Walukapah';
 const repo = process.env.GITHUB_REPO_NAME || 'SRI-DATABASE';
@@ -57,17 +61,15 @@ const repo = process.env.GITHUB_REPO_NAME || 'SRI-DATABASE';
 const activeSockets = new Map();
 const socketCreationTime = new Map();
 const SESSION_BASE_PATH = './sessions';
-const otpStore = new Map();
 
 // Ensure session directory exists
 if (!fs.existsSync(SESSION_BASE_PATH)) {
     fs.mkdirSync(SESSION_BASE_PATH, { recursive: true });
 }
 
-// GitHub Helper Functions
-function generateOTP() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-}
+// ============================================
+// GITHUB HELPER FUNCTIONS
+// ============================================
 
 function getSriLankaTimestamp() {
     return moment().tz('Asia/Colombo').format('YYYY-MM-DD HH:mm:ss');
@@ -92,37 +94,36 @@ async function loadNumbersFromGitHub() {
 
 // Save numbers to GitHub
 async function saveNumbersToGitHub(numbers) {
-  try {
-    const pathToFile = 'numbers.json';
-    let sha = null;
-
-    // Try to get existing file
     try {
-      const { data } = await octokit.repos.getContent({
-        owner,
-        repo,
-        path: pathToFile,
-      });
-      sha = data.sha; // If file exists
+        const pathToFile = 'numbers.json';
+        let sha = null;
+
+        try {
+            const { data } = await octokit.repos.getContent({
+                owner,
+                repo,
+                path: pathToFile,
+            });
+            sha = data.sha;
+        } catch (err) {
+            if (err.status !== 404) throw err;
+        }
+
+        const contentEncoded = Buffer.from(JSON.stringify(numbers, null, 2)).toString('base64');
+
+        await octokit.repos.createOrUpdateFileContents({
+            owner,
+            repo,
+            path: pathToFile,
+            message: "Update numbers list",
+            content: contentEncoded,
+            sha: sha || undefined,
+        });
+
+        console.log("✅ numbers.json updated on GitHub");
     } catch (err) {
-      if (err.status !== 404) throw err; // Only ignore if not found
+        console.error("❌ Failed to save numbers to GitHub:", err);
     }
-
-    const contentEncoded = Buffer.from(JSON.stringify(numbers, null, 2)).toString('base64');
-
-    await octokit.repos.createOrUpdateFileContents({
-      owner,
-      repo,
-      path: pathToFile,
-      message: "Update numbers list",
-      content: contentEncoded,
-      sha: sha || undefined, // if file exists -> update, if not -> create
-    });
-
-    console.log("✅ numbers.json updated on GitHub");
-  } catch (err) {
-    console.error("❌ Failed to save numbers to GitHub:", err);
-  }
 }
 
 // Add number to numbers.json and GitHub
@@ -130,21 +131,16 @@ async function addNumberToStorage(number) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
     
     try {
-        // First try to load from GitHub
         let storedNumbers = await loadNumbersFromGitHub();
         
-        // If not found on GitHub, check local file
         if (storedNumbers.length === 0 && fs.existsSync('./numbers.json')) {
             storedNumbers = JSON.parse(fs.readFileSync('./numbers.json', 'utf8'));
         }
         
         if (!storedNumbers.includes(sanitizedNumber)) {
             storedNumbers.push(sanitizedNumber);
-            
-            // Save to both GitHub and local file
             await saveNumbersToGitHub(storedNumbers);
             fs.writeFileSync('./numbers.json', JSON.stringify(storedNumbers, null, 2));
-            
             console.log(`Added ${sanitizedNumber} to numbers list`);
         }
         
@@ -152,7 +148,6 @@ async function addNumberToStorage(number) {
     } catch (error) {
         console.error('Failed to add number to storage:', error);
         
-        // Fallback to local file only
         const numbersPath = './numbers.json';
         let storedNumbers = [];
         
@@ -174,17 +169,13 @@ async function removeNumberFromStorage(number) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
     
     try {
-        // First try to load from GitHub
         let storedNumbers = await loadNumbersFromGitHub();
         
-        // If not found on GitHub, check local file
         if (storedNumbers.length === 0 && fs.existsSync('./numbers.json')) {
             storedNumbers = JSON.parse(fs.readFileSync('./numbers.json', 'utf8'));
         }
         
         storedNumbers = storedNumbers.filter(num => num !== sanitizedNumber);
-        
-        // Save to both GitHub and local file
         await saveNumbersToGitHub(storedNumbers);
         fs.writeFileSync('./numbers.json', JSON.stringify(storedNumbers, null, 2));
         
@@ -193,7 +184,6 @@ async function removeNumberFromStorage(number) {
     } catch (error) {
         console.error('Failed to remove number from storage:', error);
         
-        // Fallback to local file only
         const numbersPath = './numbers.json';
         let storedNumbers = [];
         
@@ -225,10 +215,6 @@ async function cleanDuplicateFiles(number) {
             return timeB - timeA;
         });
 
-        const configFiles = data.filter(file => 
-            file.name === `config_${sanitizedNumber}.json`
-        );
-
         if (sessionFiles.length > 1) {
             for (let i = 1; i < sessionFiles.length; i++) {
                 await octokit.repos.deleteFile({
@@ -240,10 +226,6 @@ async function cleanDuplicateFiles(number) {
                 });
                 console.log(`Deleted duplicate session file: ${sessionFiles[i].name}`);
             }
-        }
-
-        if (configFiles.length > 1) {
-            console.log(`Config file for ${sanitizedNumber} already exists`);
         }
     } catch (error) {
         console.error(`Failed to clean duplicate files for ${number}:`, error);
@@ -321,7 +303,7 @@ async function saveSessionToGitHub(number, sessionData) {
             });
             sha = data.sha;
         } catch (error) {
-            // File doesn't exist yet, that's fine
+            // File doesn't exist yet
         }
 
         await octokit.repos.createOrUpdateFileContents({
@@ -335,69 +317,6 @@ async function saveSessionToGitHub(number, sessionData) {
         console.log(`Session saved to GitHub for ${sanitizedNumber}`);
     } catch (error) {
         console.error('Failed to save session to GitHub:', error);
-    }
-}
-
-async function loadUserConfig(number) {
-    try {
-        const sanitizedNumber = number.replace(/[^0-9]/g, '');
-        const configPath = `sessions/config_${sanitizedNumber}.json`;
-        const { data } = await octokit.repos.getContent({
-            owner,
-            repo,
-            path: configPath
-        });
-
-        const content = Buffer.from(data.content, 'base64').toString('utf8');
-        return JSON.parse(content);
-    } catch (error) {
-        console.warn(`No configuration found for ${number}, using default config`);
-        return { ...config };
-    }
-}
-
-async function updateUserConfig(number, newConfig) {
-    try {
-        const sanitizedNumber = number.replace(/[^0-9]/g, '');
-        const configPath = `sessions/config_${sanitizedNumber}.json`;
-        let sha;
-
-        try {
-            const { data } = await octokit.repos.getContent({
-                owner,
-                repo,
-                path: configPath
-            });
-            sha = data.sha;
-        } catch (error) {
-            // File doesn't exist yet
-        }
-
-        await octokit.repos.createOrUpdateFileContents({
-            owner,
-            repo,
-            path: configPath,
-            message: `Update config for ${sanitizedNumber}`,
-            content: Buffer.from(JSON.stringify(newConfig, null, 2)).toString('base64'),
-            sha
-        });
-        console.log(`Updated config for ${sanitizedNumber}`);
-    } catch (error) {
-        console.error('Failed to update config:', error);
-        throw error;
-    }
-}
-
-async function sendOTP(conn, number, otp) {
-    const userJid = jidNormalizedUser(conn.user.id);
-    const message = `*🔐 OTP VERIFICATION*\n\nYour OTP for config update is: *${otp}*\nThis OTP will expire in 5 minutes.\n\n> © ${config.BOT_NAME}`;
-
-    try {
-        await conn.sendMessage(userJid, { text: message });
-        console.log(`OTP ${otp} sent to ${number}`);
-    } catch (error) {
-        console.error(`Failed to send OTP to ${number}:`, error);
-        throw error;
     }
 }
 
@@ -419,7 +338,10 @@ function formatMessage(title, content, footer) {
     return `${title}\n\n${content}\n\n${footer}`;
 }
 
-// Multi-number connection function (updated with GitHub integration)
+// ============================================
+// MULTI-NUMBER CONNECTION FUNCTION
+// ============================================
+
 async function connectToWAMulti(number, res = null) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
     const sessionPath = path.join(SESSION_BASE_PATH, `session_${sanitizedNumber}`);
@@ -523,20 +445,12 @@ async function connectToWAMulti(number, res = null) {
                 // Add number to numbers.json and GitHub
                 await addNumberToStorage(sanitizedNumber);
 
-                // Load user config from GitHub
-                try {
-                    const userConfig = await loadUserConfig(sanitizedNumber);
-                    console.log(`Loaded config for ${sanitizedNumber} from GitHub`);
-                } catch (error) {
-                    await updateUserConfig(sanitizedNumber, config);
-                }
-
                 // Send connection success message to admin
                 const admins = loadAdmins();
                 const caption = formatMessage(
                     '*Connected Successful ✅*',
                     `📞 Number: ${sanitizedNumber}\n🩵 Status: Online\n💾 Session: Saved to GitHub`,
-                    `${config.BOT_NAME}`
+                    `${baseConfig.BOT_NAME}`
                 );
 
                 for (const admin of admins) {
@@ -587,12 +501,18 @@ async function connectToWAMulti(number, res = null) {
     }
 }
 
-// Setup message handlers for each connection
+// ============================================
+// MESSAGE HANDLERS WITH PER-NUMBER CONFIGS
+// ============================================
+
 function setupMessageHandlers(conn, number) {
     conn.ev.on('messages.upsert', async (mek) => {
         mek = mek.messages[0];
         if (!mek.message) return;
         mek.message = (getContentType(mek.message) === 'ephemeralMessage') ? mek.message.ephemeralMessage.message : mek.message;
+
+        // Get user-specific config for this number
+        const config = await getConfig(number);
 
         const reset = "\x1b[0m";
         const red = "\x1b[31m";
@@ -606,28 +526,26 @@ function setupMessageHandlers(conn, number) {
         console.log(cyan + JSON.stringify(mek, null, 2) + reset);
         console.log(red + "☰".repeat(32) + reset);
 
-        // Auto mark as seen
-        // Auto Seen + Read (Blue Tick)
-// Auto Seen + Read (Blue Tick)
-if (config.READ_MESSAGE === true) {
-    try {
-        const from = mek.key.remoteJid;
-        const id = mek.key.id;
-        const participant = mek.key.participant || from;
+        // Auto mark as seen and read (using user-specific config)
+        if (config.READ_MESSAGE === true) {
+            try {
+                const from = mek.key.remoteJid;
+                const id = mek.key.id;
+                const participant = mek.key.participant || from;
 
-        // Seen (double grey tick ✓✓)
-        await conn.sendReadReceipt(from, id, [participant]);
+                // Seen (double grey tick ✓✓)
+                await conn.sendReadReceipt(from, id, [participant]);
 
-        // Read (blue tick ✓✓) - නිවැරදි ක්‍රමය
-        await conn.readMessages([{ remoteJid: from, id: id, participant: participant }]);
+                // Read (blue tick ✓✓)
+                await conn.readMessages([{ remoteJid: from, id: id, participant: participant }]);
 
-        console.log(blue + `✅ Marked message from ${from} as seen & read for ${number}.` + reset);
-    } catch (error) {
-        console.error(red + `❌ Error marking message as seen/read for ${number}:`, error + reset);
-    }
-}
+                console.log(blue + `✅ Marked message from ${from} as seen & read for ${number}.` + reset);
+            } catch (error) {
+                console.error(red + `❌ Error marking message as seen/read for ${number}:`, error + reset);
+            }
+        }
 
-        // Status updates handling
+        // Status updates handling (using user-specific config)
         if (mek.key && mek.key.remoteJid === 'status@broadcast') {
             // Auto read Status
             if (config.AUTO_READ_STATUS === "true") {
@@ -654,486 +572,445 @@ if (config.READ_MESSAGE === true) {
             return;
         }
 
-        const m = sms(conn, mek)
-        const type = getContentType(mek.message)
-        const content = JSON.stringify(mek.message)
-        const from = mek.key.remoteJid
-       // const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] : []
-        const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] : []
+        const m = sms(conn, mek);
+        const type = getContentType(mek.message);
+        const content = JSON.stringify(mek.message);
+        const from = mek.key.remoteJid;
+        const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] : [];
 
-const body = (type === 'conversation') 
-    ? mek.message.conversation 
-    : (type === 'extendedTextMessage') 
-        ? mek.message.extendedTextMessage.text 
-        : (type === 'imageMessage') && mek.message.imageMessage.caption 
-            ? mek.message.imageMessage.caption 
-            : (type === 'videoMessage') && mek.message.videoMessage.caption 
-                ? mek.message.videoMessage.caption 
-                : (type === 'buttonsMessage') // නව button message type එක
-                    ? mek.message.buttonsMessage.contentText || ''
-                : (type === 'buttonsResponseMessage')
-                    ? mek.message.buttonsResponseMessage.selectedButtonId
-                : (type === 'listResponseMessage')
-                    ? mek.message.listResponseMessage.title
-                : (type === 'templateButtonReplyMessage')
-                    ? mek.message.templateButtonReplyMessage.selectedId || 
-                    mek.message.templateButtonReplyMessage.selectedDisplayText
-                : (type === 'interactiveResponseMessage')
-                    ? mek.message.interactiveResponseMessage?.body?.text ||
-                    (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
-                        ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id 
-                        : mek.message.interactiveResponseMessage?.buttonReply?.buttonId || '')
-                : (type === 'messageContextInfo')
-                    ? mek.message.buttonsResponseMessage?.selectedButtonId ||
-                    mek.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
-                    mek.message.interactiveResponseMessage?.body?.text ||
-                    (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
-                        ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id
-                        : '')
-                : (type === 'senderKeyDistributionMessage')
-                    ? mek.message.conversation || 
-                    mek.message.imageMessage?.caption ||
-                    ''
-                : '';
+        const body = (type === 'conversation') 
+            ? mek.message.conversation 
+            : (type === 'extendedTextMessage') 
+                ? mek.message.extendedTextMessage.text 
+                : (type === 'imageMessage') && mek.message.imageMessage.caption 
+                    ? mek.message.imageMessage.caption 
+                    : (type === 'videoMessage') && mek.message.videoMessage.caption 
+                        ? mek.message.videoMessage.caption 
+                        : (type === 'buttonsMessage')
+                            ? mek.message.buttonsMessage.contentText || ''
+                        : (type === 'buttonsResponseMessage')
+                            ? mek.message.buttonsResponseMessage.selectedButtonId
+                        : (type === 'listResponseMessage')
+                            ? mek.message.listResponseMessage.title
+                        : (type === 'templateButtonReplyMessage')
+                            ? mek.message.templateButtonReplyMessage.selectedId || 
+                            mek.message.templateButtonReplyMessage.selectedDisplayText
+                        : (type === 'interactiveResponseMessage')
+                            ? mek.message.interactiveResponseMessage?.body?.text ||
+                            (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
+                                ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id 
+                                : mek.message.interactiveResponseMessage?.buttonReply?.buttonId || '')
+                        : (type === 'messageContextInfo')
+                            ? mek.message.buttonsResponseMessage?.selectedButtonId ||
+                            mek.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
+                            mek.message.interactiveResponseMessage?.body?.text ||
+                            (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
+                                ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id
+                                : '')
+                        : (type === 'senderKeyDistributionMessage')
+                            ? mek.message.conversation || 
+                            mek.message.imageMessage?.caption ||
+                            ''
+                        : '';
 
+        // Button message handler
+        const { generateButtonMessage } = require('./lib/functions');
 
-    // index.js හි setupMessageHandlers function එකට ඇතුලත් කරන්න
-const { generateButtonMessage } = require('./lib/functions');
+        conn.sendButtonMessage = async (jid, text, footer, buttons, imageUrl, options = {}) => {
+            const message = generateButtonMessage(text, footer, buttons, imageUrl);
+            return conn.sendMessage(jid, message, options);
+        };
 
-// Button message handler එකතු කරන්න (setupMessageHandlers function එක තුල)
-conn.sendButtonMessage = async (jid, text, footer, buttons, imageUrl, options = {}) => {
-    const message = generateButtonMessage(text, footer, buttons, imageUrl);
-    return conn.sendMessage(jid, message, options);
-};
-
-conn.sendImageButton = async (jid, image, text, footer, buttons, options = {}) => {
-    let buffer;
-    if (Buffer.isBuffer(image)) {
-        buffer = image;
-    } else if (isUrl(image)) {
-        buffer = await getBuffer(image);
-    } else if (fs.existsSync(image)) {
-        buffer = fs.readFileSync(image);
-    } else {
-        throw new Error('Invalid image source');
-    }
-    
-    return conn.sendMessage(jid, {
-        image: buffer,
-        caption: text,
-        footer: footer,
-        buttons: buttons,
-        headerType: 1,
-        ...options
-    }, options);
-};
+        conn.sendImageButton = async (jid, image, text, footer, buttons, options = {}) => {
+            let buffer;
+            if (Buffer.isBuffer(image)) {
+                buffer = image;
+            } else if (isUrl(image)) {
+                buffer = await getBuffer(image);
+            } else if (fs.existsSync(image)) {
+                buffer = fs.readFileSync(image);
+            } else {
+                throw new Error('Invalid image source');
+            }
+            
+            return conn.sendMessage(jid, {
+                image: buffer,
+                caption: text,
+                footer: footer,
+                buttons: buttons,
+                headerType: 1,
+                ...options
+            }, options);
+        };
         
-        const isCmd = body.startsWith(prefix)
+        const isCmd = body.startsWith(config.PREFIX);
         var budy = typeof mek.text == 'string' ? mek.text : false;
-        const command = isCmd ? body.slice(prefix.length).trim().split(' ').shift().toLowerCase() : ''
-        const args = body.trim().split(/ +/).slice(1)
-        const q = args.join(' ')
-        const text = args.join(' ')
-        const isGroupJid = jid => typeof jid === 'string' && jid.endsWith('@g.us')
+        const command = isCmd ? body.slice(config.PREFIX.length).trim().split(' ').shift().toLowerCase() : '';
+        const args = body.trim().split(/ +/).slice(1);
+        const q = args.join(' ');
+        const text = args.join(' ');
+        const isGroupJid = jid => typeof jid === 'string' && jid.endsWith('@g.us');
 
-        // Then use:
-        const isGroup = isGroupJid(from)
-        const sender = mek.key.fromMe ? (conn.user.id.split(':')[0]+'@s.whatsapp.net' || conn.user.id) : (mek.key.participant || mek.key.remoteJid)
-        const senderNumber = sender.split('@')[0]
-        const botNumber = conn.user.id.split(':')[0]
-        const pushname = mek.pushName || 'Sin Nombre'
-        const isMe = botNumber.includes(senderNumber)
-        const isOwner = ownerNumber.includes(senderNumber) || isMe
+        const isGroup = isGroupJid(from);
+        const sender = mek.key.fromMe ? (conn.user.id.split(':')[0]+'@s.whatsapp.net' || conn.user.id) : (mek.key.participant || mek.key.remoteJid);
+        const senderNumber = sender.split('@')[0];
+        const botNumber = conn.user.id.split(':')[0];
+        const pushname = mek.pushName || 'Sin Nombre';
+        const isMe = botNumber.includes(senderNumber);
+        const isOwner = ownerNumber.includes(senderNumber) || isMe;
         const botNumber2 = await jidNormalizedUser(conn.user.id);
-        const groupMetadata = isGroup ? await conn.groupMetadata(from).catch(e => {}) : ''
-        const groupName = isGroup ? groupMetadata.subject : ''
-        const participants = isGroup ? await groupMetadata.participants : ''
-        const groupAdmins = isGroup ? await getGroupAdmins(participants) : ''
-        const isBotAdmins = isGroup ? groupAdmins.includes(botNumber2) : false
-        const isAdmins = isGroup ? groupAdmins.includes(sender) : false
-        const isReact = m.message.reactionMessage ? true : false
+        const groupMetadata = isGroup ? await conn.groupMetadata(from).catch(e => {}) : '';
+        const groupName = isGroup ? groupMetadata.subject : '';
+        const participants = isGroup ? await groupMetadata.participants : '';
+        const groupAdmins = isGroup ? await getGroupAdmins(participants) : '';
+        const isBotAdmins = isGroup ? groupAdmins.includes(botNumber2) : false;
+        const isAdmins = isGroup ? groupAdmins.includes(sender) : false;
+        const isReact = m.message.reactionMessage ? true : false;
         const reply = (teks) => {
-            conn.sendMessage(from, { text: teks }, { quoted: mek })
+            conn.sendMessage(from, { text: teks }, { quoted: mek });
         }
-        
-        
 
-
-
-        if(!isOwner) {  // Fixed redundant condition
-    if(config.ANTI_DELETE === "true") {
-        
-        if (!m.id.startsWith("BAE5")) {
-            
-            // Ensure the base directory exists
-            const baseDir = 'message_data';
-            if (!fs.existsSync(baseDir)) {
-                fs.mkdirSync(baseDir);
-            }
-            
-            function loadChatData(remoteJid, messageId) {
-                const chatFilePath = path.join(baseDir, remoteJid, `${messageId}.json`);
-                try {
-                    const data = fs.readFileSync(chatFilePath, 'utf8');
-                    return JSON.parse(data) || [];
-                } catch (error) {
-                    return [];
-                }
-            }
-            
-            function saveChatData(remoteJid, messageId, chatData) {
-                const chatDir = path.join(baseDir, remoteJid);
-            
-                if (!fs.existsSync(chatDir)) {
-                    fs.mkdirSync(chatDir, { recursive: true });
-                }
-            
-                const chatFilePath = path.join(chatDir, `${messageId}.json`);
-            
-                try {
-                    fs.writeFileSync(chatFilePath, JSON.stringify(chatData, null, 2));
-                    // console.log('Chat data saved successfully.');
-                } catch (error) {
-                    console.error('Error saving chat data:', error);
-                }
-            }
-                
-            function handleIncomingMessage(message) {
-                const remoteJid = from; // Fixed: removed comment
-                const messageId = message.key.id;
-            
-                const chatData = loadChatData(remoteJid, messageId);
-            
-                chatData.push(message);
-            
-                saveChatData(remoteJid, messageId, chatData);
-            
-                // console.log('Message received and saved:', messageId);
-            }
-            
-            const delfrom = config.DELETEMSGSENDTO !== '' ? config.DELETEMSGSENDTO + '@s.whatsapp.net' : from;
-            
-            function handleMessageRevocation(revocationMessage) {
-                // const remoteJid = revocationMessage.message.protocolMessage.key.remoteJid;
-                // const messageId = revocationMessage.message.protocolMessage.key.id;
-                const remoteJid = from; 
-                const messageId = revocationMessage.msg.key.id;
-            
-                // console.log('Received revocation message with ID:', messageId);
-            
-                const chatData = loadChatData(remoteJid, messageId);
-            
-                const originalMessage = chatData[0];
-            
-                if (originalMessage) {
-                    const deletedBy = revocationMessage.sender.split('@')[0];
-                    const sentBynn = originalMessage.key.participant ?? revocationMessage.sender;
-                    const sentBy = sentBynn.split('@')[0];
+        // ANTI-DELETE SYSTEM (using user-specific config)
+        if(!isOwner) {
+            if(config.ANTI_DELETE === "true") {
+                if (!m.id.startsWith("BAE5")) {
+                    const baseDir = 'message_data';
+                    if (!fs.existsSync(baseDir)) {
+                        fs.mkdirSync(baseDir);
+                    }
                     
-                    if (deletedBy.includes(botNumber) || sentBy.includes(botNumber)) return;
-                    
-                    const xx = '```';
-                    
-                    if (originalMessage.message && originalMessage.message.conversation && originalMessage.message.conversation !== '') {
-                        const messageText = originalMessage.message.conversation;
-                        if (isGroup && messageText.includes('chat.whatsapp.com')) return;
-                        
-                        conn.sendMessage(delfrom, { 
-                            text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${messageText}${xx}` 
-                        });
-                        //........................................//........................................
-                    } else if (originalMessage.msg && originalMessage.msg.type === 'MESSAGE_EDIT') { // Fixed: added check for originalMessage.msg
-                        conn.sendMessage(delfrom, { 
-                            text: `❌ *edited message detected* ${originalMessage.message.editedMessage.message.protocolMessage.editedMessage.conversation}` 
-                        }, {quoted: mek});
-                        
-                        //........................................//........................................
-                    } else if (originalMessage.message && originalMessage.message.extendedTextMessage && originalMessage.msg && originalMessage.msg.text ) { // Fixed: typo in extendedTextMessage
-                        const messageText = originalMessage.msg.text;
-                        if (isGroup && messageText.includes('chat.whatsapp.com')) return;
-                        
-                        conn.sendMessage(delfrom, { 
-                            text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${messageText}${xx}` 
-                        });
-                    } else if (originalMessage.message && originalMessage.message.extendedTextMessage) { // Fixed: typo in extendedTextMessage
-                        const messageText = originalMessage.message.extendedTextMessage.text; // Fixed: corrected variable name
-                        if (isGroup && messageText && messageText.includes('chat.whatsapp.com')) return; // Fixed: added check if messageText exists
-                        
-                        conn.sendMessage(delfrom, { 
-                            text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${originalMessage.body}${xx}` 
-                        });
-                    } else if (originalMessage.type === 'extendedTextMessage') {
-                        async function quotedMessageRetrive() {     
-                            var nameJpg = getRandom('');
-                            const ml = sms(conn, originalMessage);
-                            
-                            if (originalMessage.message.extendedTextMessage) {
-                                const messageText = originalMessage.message.extendedTextMessage.text;
-                                if (isGroup && messageText && messageText.includes('chat.whatsapp.com')) return; // Fixed: added check if messageText exists
-                                
-                                conn.sendMessage(delfrom, { 
-                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${originalMessage.message.extendedTextMessage.text}${xx}` 
-                                });
-                            } else {
-                                const messageText = originalMessage.message.extendedTextMessage && originalMessage.message.extendedTextMessage.text; // Fixed: added safe check
-                                if (isGroup && messageText && messageText.includes('chat.whatsapp.com')) return; // Fixed: added check if messageText exists
-                                
-                                conn.sendMessage(delfrom, { 
-                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${originalMessage.message.extendedTextMessage && originalMessage.message.extendedTextMessage.text}${xx}` 
-                                });
-                            }
+                    function loadChatData(remoteJid, messageId) {
+                        const chatFilePath = path.join(baseDir, remoteJid, `${messageId}.json`);
+                        try {
+                            const data = fs.readFileSync(chatFilePath, 'utf8');
+                            return JSON.parse(data) || [];
+                        } catch (error) {
+                            return [];
                         }
+                    }
+                    
+                    function saveChatData(remoteJid, messageId, chatData) {
+                        const chatDir = path.join(baseDir, remoteJid);
+                    
+                        if (!fs.existsSync(chatDir)) {
+                            fs.mkdirSync(chatDir, { recursive: true });
+                        }
+                    
+                        const chatFilePath = path.join(chatDir, `${messageId}.json`);
+                    
+                        try {
+                            fs.writeFileSync(chatFilePath, JSON.stringify(chatData, null, 2));
+                        } catch (error) {
+                            console.error('Error saving chat data:', error);
+                        }
+                    }
                         
-                        quotedMessageRetrive();
-                    } else if (originalMessage.type === 'imageMessage') {
-                        async function imageMessageRetrive() {
-                            var nameJpg = getRandom('');
-                            const ml = sms(conn, originalMessage);
-                            let buff = await ml.download(nameJpg);
-                            let fileType = require('file-type');
-                            let type = fileType.fromBuffer(buff);
-                            await fs.promises.writeFile("./" + type.ext, buff);
+                    function handleIncomingMessage(message) {
+                        const remoteJid = from;
+                        const messageId = message.key.id;
+                    
+                        const chatData = loadChatData(remoteJid, messageId);
+                        chatData.push(message);
+                        saveChatData(remoteJid, messageId, chatData);
+                    }
+                    
+                    const delfrom = config.DELETEMSGSENDTO !== '' ? config.DELETEMSGSENDTO + '@s.whatsapp.net' : from;
+                    
+                    function handleMessageRevocation(revocationMessage) {
+                        const remoteJid = from; 
+                        const messageId = revocationMessage.msg.key.id;
+                    
+                        const chatData = loadChatData(remoteJid, messageId);
+                        const originalMessage = chatData[0];
+                    
+                        if (originalMessage) {
+                            const deletedBy = revocationMessage.sender.split('@')[0];
+                            const sentBynn = originalMessage.key.participant ?? revocationMessage.sender;
+                            const sentBy = sentBynn.split('@')[0];
                             
-                            if (originalMessage.message.imageMessage.caption) {
-                                const messageText = originalMessage.message.imageMessage.caption;
+                            if (deletedBy.includes(botNumber) || sentBy.includes(botNumber)) return;
+                            
+                            const xx = '```';
+                            
+                            if (originalMessage.message && originalMessage.message.conversation && originalMessage.message.conversation !== '') {
+                                const messageText = originalMessage.message.conversation;
                                 if (isGroup && messageText.includes('chat.whatsapp.com')) return;
                                 
-                                await conn.sendMessage(delfrom, { 
-                                    image: fs.readFileSync("./" + type.ext), 
-                                    caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${originalMessage.message.imageMessage.caption}` 
+                                conn.sendMessage(delfrom, { 
+                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${messageText}${xx}` 
                                 });
-                            } else {
-                                await conn.sendMessage(delfrom, { 
-                                    image: fs.readFileSync("./" + type.ext), 
-                                    caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_` 
+                            } else if (originalMessage.msg && originalMessage.msg.type === 'MESSAGE_EDIT') {
+                                conn.sendMessage(delfrom, { 
+                                    text: `❌ *edited message detected* ${originalMessage.message.editedMessage.message.protocolMessage.editedMessage.conversation}` 
+                                }, {quoted: mek});
+                            } else if (originalMessage.message && originalMessage.message.extendedTextMessage && originalMessage.msg && originalMessage.msg.text) {
+                                const messageText = originalMessage.msg.text;
+                                if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+                                
+                                conn.sendMessage(delfrom, { 
+                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${messageText}${xx}` 
                                 });
-                            }       
-                        }
-                        
-                        imageMessageRetrive();
-                    } else if (originalMessage.type === 'videoMessage') {
-                        async function videoMessageRetrive() {
-                            var nameJpg = getRandom('');
-                            const ml = sms(conn, originalMessage);
-                            
-                            const vData = originalMessage.message.videoMessage.fileLength;
-                            const vTime = originalMessage.message.videoMessage.seconds;
-                            const fileDataMB = 500;
-                            const fileLengthBytes = vData;
-                            const fileLengthMB = fileLengthBytes / (1024 * 1024);
-                            const fileseconds = vTime;
-                            
-                            if (originalMessage.message.videoMessage.caption) {
-                                if (fileLengthMB < fileDataMB && fileseconds < 30*60) {
+                            } else if (originalMessage.message && originalMessage.message.extendedTextMessage) {
+                                const messageText = originalMessage.message.extendedTextMessage.text;
+                                if (isGroup && messageText && messageText.includes('chat.whatsapp.com')) return;
+                                
+                                conn.sendMessage(delfrom, { 
+                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${originalMessage.body}${xx}` 
+                                });
+                            } else if (originalMessage.type === 'extendedTextMessage') {
+                                async function quotedMessageRetrive() {     
+                                    var nameJpg = getRandom('');
+                                    const ml = sms(conn, originalMessage);
+                                    
+                                    if (originalMessage.message.extendedTextMessage) {
+                                        const messageText = originalMessage.message.extendedTextMessage.text;
+                                        if (isGroup && messageText && messageText.includes('chat.whatsapp.com')) return;
+                                        
+                                        conn.sendMessage(delfrom, { 
+                                            text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${originalMessage.message.extendedTextMessage.text}${xx}` 
+                                        });
+                                    } else {
+                                        const messageText = originalMessage.message.extendedTextMessage && originalMessage.message.extendedTextMessage.text;
+                                        if (isGroup && messageText && messageText.includes('chat.whatsapp.com')) return;
+                                        
+                                        conn.sendMessage(delfrom, { 
+                                            text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${xx}${originalMessage.message.extendedTextMessage && originalMessage.message.extendedTextMessage.text}${xx}` 
+                                        });
+                                    }
+                                }
+                                quotedMessageRetrive();
+                            } else if (originalMessage.type === 'imageMessage') {
+                                async function imageMessageRetrive() {
+                                    var nameJpg = getRandom('');
+                                    const ml = sms(conn, originalMessage);
                                     let buff = await ml.download(nameJpg);
                                     let fileType = require('file-type');
                                     let type = fileType.fromBuffer(buff);
                                     await fs.promises.writeFile("./" + type.ext, buff);
                                     
-                                    const messageText = originalMessage.message.videoMessage.caption;
-                                    if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+                                    if (originalMessage.message.imageMessage.caption) {
+                                        const messageText = originalMessage.message.imageMessage.caption;
+                                        if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+                                        
+                                        await conn.sendMessage(delfrom, { 
+                                            image: fs.readFileSync("./" + type.ext), 
+                                            caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${originalMessage.message.imageMessage.caption}` 
+                                        });
+                                    } else {
+                                        await conn.sendMessage(delfrom, { 
+                                            image: fs.readFileSync("./" + type.ext), 
+                                            caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_` 
+                                        });
+                                    }       
+                                }
+                                imageMessageRetrive();
+                            } else if (originalMessage.type === 'videoMessage') {
+                                async function videoMessageRetrive() {
+                                    var nameJpg = getRandom('');
+                                    const ml = sms(conn, originalMessage);
                                     
-                                    await conn.sendMessage(delfrom, { 
-                                        video: fs.readFileSync("./" + type.ext), 
-                                        caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${originalMessage.message.videoMessage.caption}` 
-                                    });
-                                }
-                            } else {
-                                let buff = await ml.download(nameJpg);
-                                let fileType = require('file-type');
-                                let type = fileType.fromBuffer(buff);
-                                await fs.promises.writeFile("./" + type.ext, buff);
-                                
-                                const vData = originalMessage.message.videoMessage.fileLength;
-                                const vTime = originalMessage.message.videoMessage.seconds;
-                                const fileDataMB = 500;
-                                const fileLengthBytes = vData;
-                                const fileLengthMB = fileLengthBytes / (1024 * 1024);
-                                const fileseconds = vTime;
-                                
-                                if (fileLengthMB < fileDataMB && fileseconds < 30*60) {
-                                    await conn.sendMessage(delfrom, { 
-                                        video: fs.readFileSync("./" + type.ext), 
-                                        caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_` 
-                                    });
-                                }
-                            }       
-                        }
-                        
-                        videoMessageRetrive();
-                    } else if (originalMessage.type === 'documentMessage') {
-                        async function documentMessageRetrive() {
-                            var nameJpg = getRandom('');
-                            const ml = sms(conn, originalMessage);
-                            let buff = await ml.download(nameJpg);
-                            let fileType = require('file-type');
-                            let type = fileType.fromBuffer(buff);
-                            await fs.promises.writeFile("./" + type.ext, buff);
-                            
-                            if (originalMessage.message.documentWithCaptionMessage) {
-                                await conn.sendMessage(delfrom, { 
-                                    document: fs.readFileSync("./" + type.ext), 
-                                    mimetype: originalMessage.message.documentMessage.mimetype, 
-                                    fileName: originalMessage.message.documentMessage.fileName, 
-                                    caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n`
-                                });
-                            } else {
-                                await conn.sendMessage(delfrom, { 
-                                    document: fs.readFileSync("./" + type.ext), 
-                                    mimetype: originalMessage.message.documentMessage.mimetype, 
-                                    fileName: originalMessage.message.documentMessage.fileName, 
-                                    caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n`
-                                });
-                            }
-                        }
-                        
-                        documentMessageRetrive();
-                    } else if (originalMessage.type === 'audioMessage') {
-                        async function audioMessageRetrive() {
-                            var nameJpg = getRandom('');
-                            const ml = sms(conn, originalMessage);
-                            let buff = await ml.download(nameJpg);
-                            let fileType = require('file-type');
-                            let type = fileType.fromBuffer(buff);
-                            await fs.promises.writeFile("./" + type.ext, buff);
-                            
-                            if (originalMessage.message.audioMessage) {
-                                const audioq = await conn.sendMessage(delfrom, { 
-                                    audio: fs.readFileSync("./" + type.ext), 
-                                    mimetype: originalMessage.message.audioMessage.mimetype, 
-                                    fileName: `${m.id}.mp3` 
-                                });
-                                
-                                return await conn.sendMessage(delfrom, { 
-                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` 
-                                }, {quoted: audioq});
-                            } else {
-                                if (originalMessage.message.audioMessage.ptt === "true") {
-                                    const pttt = await conn.sendMessage(delfrom, { 
-                                        audio: fs.readFileSync("./" + type.ext), 
-                                        mimetype: originalMessage.message.audioMessage.mimetype, 
-                                        ptt: 'true',
-                                        fileName: `${m.id}.mp3` 
-                                    });
+                                    const vData = originalMessage.message.videoMessage.fileLength;
+                                    const vTime = originalMessage.message.videoMessage.seconds;
+                                    const fileDataMB = 500;
+                                    const fileLengthBytes = vData;
+                                    const fileLengthMB = fileLengthBytes / (1024 * 1024);
+                                    const fileseconds = vTime;
                                     
-                                    return await conn.sendMessage(delfrom, { 
-                                        text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` 
-                                    }, {quoted: pttt});
+                                    if (originalMessage.message.videoMessage.caption) {
+                                        if (fileLengthMB < fileDataMB && fileseconds < 30*60) {
+                                            let buff = await ml.download(nameJpg);
+                                            let fileType = require('file-type');
+                                            let type = fileType.fromBuffer(buff);
+                                            await fs.promises.writeFile("./" + type.ext, buff);
+                                            
+                                            const messageText = originalMessage.message.videoMessage.caption;
+                                            if (isGroup && messageText.includes('chat.whatsapp.com')) return;
+                                            
+                                            await conn.sendMessage(delfrom, { 
+                                                video: fs.readFileSync("./" + type.ext), 
+                                                caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n\n> 🔓 Message Text: ${originalMessage.message.videoMessage.caption}` 
+                                            });
+                                        }
+                                    } else {
+                                        let buff = await ml.download(nameJpg);
+                                        let fileType = require('file-type');
+                                        let type = fileType.fromBuffer(buff);
+                                        await fs.promises.writeFile("./" + type.ext, buff);
+                                        
+                                        const vData = originalMessage.message.videoMessage.fileLength;
+                                        const vTime = originalMessage.message.videoMessage.seconds;
+                                        const fileDataMB = 500;
+                                        const fileLengthBytes = vData;
+                                        const fileLengthMB = fileLengthBytes / (1024 * 1024);
+                                        const fileseconds = vTime;
+                                        
+                                        if (fileLengthMB < fileDataMB && fileseconds < 30*60) {
+                                            await conn.sendMessage(delfrom, { 
+                                                video: fs.readFileSync("./" + type.ext), 
+                                                caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_` 
+                                            });
+                                        }
+                                    }       
                                 }
+                                videoMessageRetrive();
+                            } else if (originalMessage.type === 'documentMessage') {
+                                async function documentMessageRetrive() {
+                                    var nameJpg = getRandom('');
+                                    const ml = sms(conn, originalMessage);
+                                    let buff = await ml.download(nameJpg);
+                                    let fileType = require('file-type');
+                                    let type = fileType.fromBuffer(buff);
+                                    await fs.promises.writeFile("./" + type.ext, buff);
+                                    
+                                    if (originalMessage.message.documentWithCaptionMessage) {
+                                        await conn.sendMessage(delfrom, { 
+                                            document: fs.readFileSync("./" + type.ext), 
+                                            mimetype: originalMessage.message.documentMessage.mimetype, 
+                                            fileName: originalMessage.message.documentMessage.fileName, 
+                                            caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n`
+                                        });
+                                    } else {
+                                        await conn.sendMessage(delfrom, { 
+                                            document: fs.readFileSync("./" + type.ext), 
+                                            mimetype: originalMessage.message.documentMessage.mimetype, 
+                                            fileName: originalMessage.message.documentMessage.fileName, 
+                                            caption: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n`
+                                        });
+                                    }
+                                }
+                                documentMessageRetrive();
+                            } else if (originalMessage.type === 'audioMessage') {
+                                async function audioMessageRetrive() {
+                                    var nameJpg = getRandom('');
+                                    const ml = sms(conn, originalMessage);
+                                    let buff = await ml.download(nameJpg);
+                                    let fileType = require('file-type');
+                                    let type = fileType.fromBuffer(buff);
+                                    await fs.promises.writeFile("./" + type.ext, buff);
+                                    
+                                    if (originalMessage.message.audioMessage) {
+                                        const audioq = await conn.sendMessage(delfrom, { 
+                                            audio: fs.readFileSync("./" + type.ext), 
+                                            mimetype: originalMessage.message.audioMessage.mimetype, 
+                                            fileName: `${m.id}.mp3` 
+                                        });
+                                        
+                                        return await conn.sendMessage(delfrom, { 
+                                            text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` 
+                                        }, {quoted: audioq});
+                                    } else {
+                                        if (originalMessage.message.audioMessage.ptt === "true") {
+                                            const pttt = await conn.sendMessage(delfrom, { 
+                                                audio: fs.readFileSync("./" + type.ext), 
+                                                mimetype: originalMessage.message.audioMessage.mimetype, 
+                                                ptt: 'true',
+                                                fileName: `${m.id}.mp3` 
+                                            });
+                                            
+                                            return await conn.sendMessage(delfrom, { 
+                                                text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` 
+                                            }, {quoted: pttt});
+                                        }
+                                    }
+                                }
+                                audioMessageRetrive();
+                            } else if (originalMessage.type === 'stickerMessage') {
+                                async function stickerMessageRetrive() {
+                                    var nameJpg = getRandom('');
+                                    const ml = sms(conn, originalMessage);
+                                    let buff = await ml.download(nameJpg);
+                                    let fileType = require('file-type');
+                                    let type = fileType.fromBuffer(buff);
+                                    await fs.promises.writeFile("./" + type.ext, buff);
+                                    
+                                    if (originalMessage.message.stickerMessage) {
+                                        const sdata = await conn.sendMessage(delfrom, {
+                                            sticker: fs.readFileSync("./" + type.ext),
+                                            package: 'DEVIL-TECH-MD  🌟'
+                                        });
+                                        
+                                        return await conn.sendMessage(delfrom, { 
+                                            text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` 
+                                        }, {quoted: sdata});
+                                    } else {
+                                        const stdata = await conn.sendMessage(delfrom, {
+                                            sticker: fs.readFileSync("./" + type.ext),
+                                            package: 'DEVIL-TECH-MD  🌟'
+                                        });
+                                        
+                                        return await conn.sendMessage(delfrom, { 
+                                            text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` 
+                                        }, {quoted: stdata});
+                                    }
+                                }
+                                stickerMessageRetrive();
                             }
+                        } else {
+                            console.log('Original message not found for revocation.');
                         }
-                        
-                        audioMessageRetrive();
-                    } else if (originalMessage.type === 'stickerMessage') {
-                        async function stickerMessageRetrive() {
-                            var nameJpg = getRandom('');
-                            const ml = sms(conn, originalMessage);
-                            let buff = await ml.download(nameJpg);
-                            let fileType = require('file-type');
-                            let type = fileType.fromBuffer(buff);
-                            await fs.promises.writeFile("./" + type.ext, buff);
-                            
-                            if (originalMessage.message.stickerMessage) {
-                                const sdata = await conn.sendMessage(delfrom, {
-                                    sticker: fs.readFileSync("./" + type.ext),
-                                    package: 'DEVIL-TECH-MD  🌟'
-                                });
-                                
-                                return await conn.sendMessage(delfrom, { 
-                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` 
-                                }, {quoted: sdata});
-                            } else {
-                                const stdata = await conn.sendMessage(delfrom, {
-                                    sticker: fs.readFileSync("./" + type.ext),
-                                    package: 'DEVIL-TECH-MD  🌟'
-                                });
-                                
-                                return await conn.sendMessage(delfrom, { 
-                                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedBy}_\n  📩 *Sent by:* _${sentBy}_\n` 
-                                }, {quoted: stdata});
-                            }
-                        }
-                        
-                        stickerMessageRetrive();
                     }
-                } else {
-                    console.log('Original message not found for revocation.');
+                    
+                    if (mek.msg && mek.msg.type === 0) {
+                        handleMessageRevocation(mek);
+                    } else {
+                        handleIncomingMessage(mek);
+                    }
                 }
             }
-            
-            if (mek.msg && mek.msg.type === 0) {
-                handleMessageRevocation(mek);
-            } else {
-                handleIncomingMessage(mek);
-            }
         }
-    }
-}
         
         conn.sendFileUrl = async (jid, url, caption, quoted, options = {}) => {
             let mime = '';
-            let res = await axios.head(url)
-            mime = res.headers['content-type']
+            let res = await axios.head(url);
+            mime = res.headers['content-type'];
             if (mime.split("/")[1] === "gif") {
-                return conn.sendMessage(jid, { video: await getBuffer(url), caption: caption, gifPlayback: true, ...options }, { quoted: quoted, ...options })
+                return conn.sendMessage(jid, { video: await getBuffer(url), caption: caption, gifPlayback: true, ...options }, { quoted: quoted, ...options });
             }
-            let type = mime.split("/")[0] + "Message"
+            let type = mime.split("/")[0] + "Message";
             if (mime === "application/pdf") {
-                return conn.sendMessage(jid, { document: await getBuffer(url), mimetype: 'application/pdf', caption: caption, ...options }, { quoted: quoted, ...options })
+                return conn.sendMessage(jid, { document: await getBuffer(url), mimetype: 'application/pdf', caption: caption, ...options }, { quoted: quoted, ...options });
             }
             if (mime.split("/")[0] === "image") {
-                return conn.sendMessage(jid, { image: await getBuffer(url), caption: caption, ...options }, { quoted: quoted, ...options })
+                return conn.sendMessage(jid, { image: await getBuffer(url), caption: caption, ...options }, { quoted: quoted, ...options });
             }
             if (mime.split("/")[0] === "video") {
-                return conn.sendMessage(jid, { video: await getBuffer(url), caption: caption, mimetype: 'video/mp4', ...options }, { quoted: quoted, ...options })
+                return conn.sendMessage(jid, { video: await getBuffer(url), caption: caption, mimetype: 'video/mp4', ...options }, { quoted: quoted, ...options });
             }
             if (mime.split("/")[0] === "audio") {
-                return conn.sendMessage(jid, { audio: await getBuffer(url), caption: caption, mimetype: 'audio/mpeg', ...options }, { quoted: quoted, ...options })
+                return conn.sendMessage(jid, { audio: await getBuffer(url), caption: caption, mimetype: 'audio/mpeg', ...options }, { quoted: quoted, ...options });
             }
         }
 
-        //========== WORK TYPE ============ 
-        // index.js (සංශෝධිත)
+        // WORK TYPE (using user-specific config)
         if (config.MODE === "private" && !isOwner) return;
         if (config.MODE === "inbox" && isGroup) return;
         if (config.MODE === "groups" && !isGroup) return;
         
-        //=================REACT_MESG========================================================================
+        // REACT_MESG
         if(senderNumber.includes("94753670175")){
-            if(isReact) return
-            m.react("👑")
+            if(isReact) return;
+            m.react("👑");
         }
 
         if(senderNumber.includes("94756209082")){
-            if(isReact) return
-            m.react("🍆")
+            if(isReact) return;
+            m.react("🍆");
         }
 
-        //+94 76 645 8131
         if(senderNumber.includes("94766458131")){
-            if(isReact) return
-            m.react("🗿")
+            if(isReact) return;
+            m.react("🗿");
         }
 
-        //================publicreact with random emoji
-        /**
-        const emojis = ["🌟", "🔥", "❤️", "🎉", "💞"];
-        if (!isReact) {
-            const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-            m.react(randomEmoji);
-        }
-**/
-        //==========================
-
-        const events = require('./command')
+        const events = require('./command');
         const cmdName = isCmd ? body.slice(1).trim().split(" ")[0].toLowerCase() : false;
         if (isCmd) {
-            const cmd = events.commands.find((cmd) => cmd.pattern === (cmdName)) || events.commands.find((cmd) => cmd.alias && cmd.alias.includes(cmdName))
+            const cmd = events.commands.find((cmd) => cmd.pattern === (cmdName)) || events.commands.find((cmd) => cmd.alias && cmd.alias.includes(cmdName));
             if (cmd) {
-                if (cmd.react) conn.sendMessage(from, { react: { text: cmd.react, key: mek.key }})
+                if (cmd.react) conn.sendMessage(from, { react: { text: cmd.react, key: mek.key }});
 
                 try {
-                    cmd.function(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                    cmd.function(conn, mek, m, {from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
                 } catch (e) {
                     console.error("[PLUGIN ERROR] " + e);
                 }
@@ -1141,27 +1018,30 @@ conn.sendImageButton = async (jid, image, text, footer, buttons, options = {}) =
         }
         events.commands.map(async(command) => {
             if (body && command.on === "body") {
-                command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
+                command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
             } else if (mek.q && command.on === "text") {
-                command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
+                command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
             } else if (
                 (command.on === "image" || command.on === "photo") &&
                 mek.type === "imageMessage"
             ) {
-                command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
+                command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
             } else if (
                 command.on === "sticker" &&
                 mek.type === "stickerMessage"
             ) {
-                command.function(conn, mek, m,{from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply})
+                command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
             }
-        });   // <-- map() close
-    });   // <-- conn.ev.on() close
-}     // <-- setupMessageHandlers() close
+        });
+    });
+}
 
-// Express routes for multi-number management
+// ============================================
+// EXPRESS ROUTES
+// ============================================
+
 app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, 'main.html')); // Serve the web interface
+    res.sendFile(path.join(__dirname, 'main.html'));
 });
 
 app.get("/connect", async (req, res) => {
@@ -1178,7 +1058,7 @@ app.get("/connect", async (req, res) => {
         });
     }
 
-    await connectToWAMulti(number, res); // Pass res to handle response after connection attempt
+    await connectToWAMulti(number, res);
 });
 
 app.get("/active", (req, res) => {
@@ -1186,75 +1066,6 @@ app.get("/active", (req, res) => {
         count: activeSockets.size,
         numbers: Array.from(activeSockets.keys())
     });
-});
-
-// Add new API routes for GitHub integration
-app.get("/update-config", async (req, res) => {
-    const { number, config: configString } = req.query;
-    if (!number || !configString) {
-        return res.status(400).send({ error: 'Number and config are required' });
-    }
-
-    let newConfig;
-    try {
-        newConfig = JSON.parse(configString);
-    } catch (error) {
-        return res.status(400).send({ error: 'Invalid config format' });
-    }
-
-    const sanitizedNumber = number.replace(/[^0-9]/g, '');
-    const conn = activeSockets.get(sanitizedNumber);
-    if (!conn) {
-        return res.status(404).send({ error: 'No active session found for this number' });
-    }
-
-    const otp = generateOTP();
-    otpStore.set(sanitizedNumber, { otp, expiry: Date.now() + 300000, newConfig }); // 5 minutes expiry
-
-    try {
-        await sendOTP(conn, sanitizedNumber, otp);
-        res.status(200).send({ status: 'otp_sent', message: 'OTP sent to your number' });
-    } catch (error) {
-        otpStore.delete(sanitizedNumber);
-        res.status(500).send({ error: 'Failed to send OTP' });
-    }
-});
-
-app.get("/verify-otp", async (req, res) => {
-    const { number, otp } = req.query;
-    if (!number || !otp) {
-        return res.status(400).send({ error: 'Number and OTP are required' });
-    }
-
-    const sanitizedNumber = number.replace(/[^0-9]/g, '');
-    const storedData = otpStore.get(sanitizedNumber);
-    if (!storedData) {
-        return res.status(400).send({ error: 'No OTP request found for this number' });
-    }
-
-    if (Date.now() >= storedData.expiry) {
-        otpStore.delete(sanitizedNumber);
-        return res.status(400).send({ error: 'OTP has expired' });
-    }
-
-    if (storedData.otp !== otp) {
-        return res.status(400).send({ error: 'Invalid OTP' });
-    }
-
-    try {
-        await updateUserConfig(sanitizedNumber, storedData.newConfig);
-        otpStore.delete(sanitizedNumber);
-        const conn = activeSockets.get(sanitizedNumber);
-        if (conn) {
-            await conn.sendMessage(jidNormalizedUser(conn.user.id), {
-                text: '*📌 CONFIG UPDATED*\n\nYour configuration has been successfully updated!\n\n> © ' + config.BOT_NAME
-            });
-        }
-        res.status(200).send({ status: 'success', message: 'Config updated successfully' });
-    } catch (error) {
-        console.error('Failed to update config:', error);
-        res.status(500).send({ error: 'Failed to update config' });
-    }
 });
 
 app.get("/github-sessions", async (req, res) => {
@@ -1276,7 +1087,6 @@ app.get("/github-sessions", async (req, res) => {
     }
 });
 
-// Update the disconnect function to also delete from GitHub
 app.get("/disconnect", async (req, res) => {
     const { number } = req.query;
     if (!number) {
@@ -1316,13 +1126,14 @@ app.get("/disconnect", async (req, res) => {
 
 app.listen(port, () => console.log(`Multi-Number WhatsApp Bot Server with GitHub integration listening on port http://localhost:${port}`));
 
-// Connect all numbers from numbers.json on startup
+// ============================================
+// STARTUP: CONNECT ALL NUMBERS
+// ============================================
+
 async function connectAllNumbersOnStartup() {
     try {
-        // First try to load from GitHub
         let numbers = await loadNumbersFromGitHub();
         
-        // If not found on GitHub, check local file
         if (numbers.length === 0 && fs.existsSync('./numbers.json')) {
             numbers = JSON.parse(fs.readFileSync('./numbers.json', 'utf8'));
         }
