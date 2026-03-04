@@ -551,8 +551,9 @@ function setupMessageHandlers(conn, number) {
             fs.writeFileSync(filePath, JSON.stringify(msg, null, 2));
             // Also store in memory
             messageStore.set(`${remoteJid}:${msgId}`, msg);
+            console.log(`💾 Message saved: ${msgId} from ${remoteJid}`);
         } catch (e) {
-            console.error('Error saving message:', e);
+            console.error('❌ Error saving message:', e);
         }
     };
     
@@ -562,6 +563,7 @@ function setupMessageHandlers(conn, number) {
             // Try memory first
             const memKey = `${jid}:${msgId}`;
             if (messageStore.has(memKey)) {
+                console.log(`📂 Message loaded from memory: ${msgId}`);
                 return messageStore.get(memKey);
             }
             
@@ -571,11 +573,13 @@ function setupMessageHandlers(conn, number) {
                 const data = fs.readFileSync(filePath, 'utf8');
                 const msg = JSON.parse(data);
                 messageStore.set(memKey, msg);
+                console.log(`📂 Message loaded from file: ${msgId}`);
                 return msg;
             }
+            console.log(`❌ Message not found: ${msgId}`);
             return null;
         } catch (e) {
-            console.error('Error loading message:', e);
+            console.error('❌ Error loading message:', e);
             return null;
         }
     };
@@ -614,125 +618,120 @@ function setupMessageHandlers(conn, number) {
 
         console.log(red + "☰".repeat(32) + reset);
         console.log(green + bold + `New Message for ${number}:` + reset);
-        console.log(cyan + JSON.stringify(mek, null, 2) + reset);
+        console.log(cyan + `Type: ${msgType}, From: ${mek.key.remoteJid}` + reset);
         console.log(red + "☰".repeat(32) + reset);
 
-        // Check if this is a protocol message (delete/edit)
-        const isProtocolMessage = mek.message && (
-            mek.message.protocolMessage || 
-            mek.message.reactionMessage ||
-            (mek.message.senderKeyDistributionMessage && mek.message.protocolMessage)
-        );
-        
-        // Check if this is a REVOKE (delete) message
+        // ==========================================
+        // ANTI-DELETE: Check for REVOKE first
+        // ==========================================
         const isRevoke = mek.message && mek.message.protocolMessage && 
                          mek.message.protocolMessage.type === 'REVOKE';
         
-        // Handle Anti-Delete for REVOKE messages
-        if (isRevoke && toBool(config.ANTI_DELETE)) {
-            const revokeKey = mek.message.protocolMessage.key;
-            const originalJid = revokeKey.remoteJid;
-            const originalId = revokeKey.id;
+        if (isRevoke) {
+            console.log(`🗑️ DELETE DETECTED! Processing anti-delete...`);
             
-            console.log(`🗑️ Delete detected: ${originalId} in ${originalJid}`);
-            
-            // Load original message
-            const originalMsg = loadMessage(originalJid, originalId);
-            
-            if (originalMsg) {
-                // Get sender info
-                const deletedBy = getRealSender(mek).split('@')[0];
-                const sentBy = getRealSender(originalMsg).split('@')[0];
+            if (toBool(config.ANTI_DELETE)) {
+                const revokeKey = mek.message.protocolMessage.key;
+                const originalJid = revokeKey.remoteJid;
+                const originalId = revokeKey.id;
                 
-                // Determine destination
-                let delfrom = config.DELETEMSGSENDTO ? 
-                    config.DELETEMSGSENDTO + '@s.whatsapp.net' : 
-                    originalJid;
+                console.log(`🔍 Looking for original message: ${originalId} in ${originalJid}`);
                 
-                // Handle LID format for destination
-                if (delfrom.endsWith('@lid')) {
-                    // Try to get real number
-                    const realJid = mek.key.remoteJidAlt || originalMsg.key.remoteJidAlt;
-                    if (realJid) {
-                        delfrom = realJid;
-                    } else {
-                        // Fallback to sender
-                        delfrom = originalMsg.key.fromMe ? 
-                            conn.user.id : 
-                            (originalMsg.key.participant || originalMsg.key.remoteJid);
+                // Load original message
+                const originalMsg = loadMessage(originalJid, originalId);
+                
+                if (originalMsg) {
+                    // Get sender info
+                    const deletedBy = getRealSender(mek).split('@')[0];
+                    const sentBy = getRealSender(originalMsg).split('@')[0];
+                    
+                    console.log(`✅ Original message found! Deleted by: ${deletedBy}, Sent by: ${sentBy}`);
+                    
+                    // Determine destination - send to where delete happened
+                    let delfrom = mek.key.remoteJid;
+                    
+                    // Handle LID format for destination
+                    if (delfrom.endsWith('@lid') && mek.key.remoteJidAlt) {
+                        delfrom = mek.key.remoteJidAlt;
                     }
+                    
+                    const xx = '```';
+                    let deleteMsg = `🚫 *Message Deleted !!*\n\n`;
+                    deleteMsg += `🗑️ *Deleted by:* _${deletedBy}_\n`;
+                    deleteMsg += `📩 *Sent by:* _${sentBy}_\n`;
+                    
+                    // Get message text
+                    let msgText = '';
+                    const origType = getContentType(originalMsg.message);
+                    
+                    if (origType === 'conversation') {
+                        msgText = originalMsg.message.conversation;
+                    } else if (origType === 'extendedTextMessage') {
+                        msgText = originalMsg.message.extendedTextMessage.text;
+                    } else if (origType === 'imageMessage') {
+                        msgText = originalMsg.message.imageMessage.caption || '[Image]';
+                    } else if (origType === 'videoMessage') {
+                        msgText = originalMsg.message.videoMessage.caption || '[Video]';
+                    }
+                    
+                    if (msgText) {
+                        deleteMsg += `\n> 🔓 *Message:* ${xx}${msgText}${xx}`;
+                    }
+                    
+                    try {
+                        await conn.sendMessage(delfrom, { text: deleteMsg });
+                        console.log(`✅ Anti-delete message sent to ${delfrom}`);
+                    } catch (e) {
+                        console.error('❌ Error sending anti-delete message:', e);
+                    }
+                    
+                    // Clean up stored message
+                    const memKey = `${originalJid}:${originalId}`;
+                    messageStore.delete(memKey);
+                    try {
+                        fs.unlinkSync(getStoreFilePath(originalJid, originalId));
+                    } catch (e) {}
+                } else {
+                    console.log(`❌ Original message NOT found in store: ${originalId}`);
                 }
-                
-                const xx = '```';
-                let deleteMsg = `🚫 *Message Deleted !!*\n\n`;
-                deleteMsg += `🗑️ *Deleted by:* _${deletedBy}_\n`;
-                deleteMsg += `📩 *Sent by:* _${sentBy}_\n`;
-                
-                // Get message text
-                let msgText = '';
-                const origType = getContentType(originalMsg.message);
-                
-                if (origType === 'conversation') {
-                    msgText = originalMsg.message.conversation;
-                } else if (origType === 'extendedTextMessage') {
-                    msgText = originalMsg.message.extendedTextMessage.text;
-                } else if (origType === 'imageMessage') {
-                    msgText = originalMsg.message.imageMessage.caption || '[Image]';
-                } else if (origType === 'videoMessage') {
-                    msgText = originalMsg.message.videoMessage.caption || '[Video]';
-                }
-                
-                if (msgText) {
-                    deleteMsg += `\n> 🔓 *Message:* ${xx}${msgText}${xx}`;
-                }
-                
-                try {
-                    await conn.sendMessage(delfrom, { text: deleteMsg });
-                    console.log(`✅ Anti-delete message sent to ${delfrom}`);
-                } catch (e) {
-                    console.error('Error sending anti-delete message:', e);
-                }
-                
-                // Clean up stored message
-                const memKey = `${originalJid}:${originalId}`;
-                messageStore.delete(memKey);
-                try {
-                    fs.unlinkSync(getStoreFilePath(originalJid, originalId));
-                } catch (e) {}
             } else {
-                console.log('❌ Original message not found in store');
+                console.log(`⏭️ Anti-delete disabled in config`);
             }
             
             return; // Don't process delete messages further
         }
         
-        // Skip protocol messages and reactions for storage
-        if (isProtocolMessage) {
-            return;
-        }
+        // ==========================================
+        // SAVE ALL REGULAR MESSAGES FOR ANTI-DELETE
+        // ==========================================
+        // Skip only if it's from me or a reaction
+        const isReaction = mek.message && mek.message.reactionMessage;
+        const isFromMe = mek.key.fromMe;
         
-        // Save all regular messages for anti-delete
-        if (toBool(config.ANTI_DELETE) && !mek.key.fromMe) {
+        if (toBool(config.ANTI_DELETE) && !isFromMe && !isReaction) {
+            // Save message immediately
             saveMessage(mek);
         }
 
-        // Auto mark as seen and read (using dynamic config with toBool helper)
+        // ==========================================
+        // AUTO READ STATUS
+        // ==========================================
         if (toBool(config.READ_MESSAGE)) {
             try {
                 const from = mek.key.remoteJid;
                 const id = mek.key.id;
                 const participant = mek.key.participant || from;
 
-                // Use readMessages only (sendReadReceipt is deprecated)
                 await conn.readMessages([{ remoteJid: from, id: id, participant: participant }]);
-
                 console.log(blue + `✅ Marked message from ${from} as read for ${number}.` + reset);
             } catch (error) {
                 console.error(red + `❌ Error marking message as read for ${number}:`, error.message + reset);
             }
         }
 
-        // Status updates handling (using dynamic config with toBool helper)
+        // ==========================================
+        // STATUS UPDATES HANDLING
+        // ==========================================
         if (mek.key && mek.key.remoteJid === 'status@broadcast') {
             // Auto read Status
             if (toBool(config.AUTO_READ_STATUS)) {
@@ -759,6 +758,9 @@ function setupMessageHandlers(conn, number) {
             return;
         }
 
+        // ==========================================
+        // REGULAR MESSAGE PROCESSING
+        // ==========================================
         const m = sms(conn, mek);
         const type = getContentType(mek.message);
         const content = JSON.stringify(mek.message);
@@ -879,7 +881,7 @@ function setupMessageHandlers(conn, number) {
             }
         }
 
-        // WORK TYPE (FIXED - using toBool helper)
+        // WORK TYPE
         if (config.MODE === "private" && !isOwner) return;
         if (config.MODE === "inbox" && isGroup) return;
         if (config.MODE === "groups" && !isGroup) return;
