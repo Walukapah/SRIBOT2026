@@ -70,6 +70,18 @@ if (!fs.existsSync(SESSION_BASE_PATH)) {
 }
 
 // ============================================
+// HELPER FUNCTION: Convert config to boolean
+// ============================================
+
+function toBool(value) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+        return value.toLowerCase() === 'true';
+    }
+    return false;
+}
+
+// ============================================
 // GITHUB HELPER FUNCTIONS
 // ============================================
 
@@ -531,8 +543,8 @@ function setupMessageHandlers(conn, number) {
         console.log(cyan + JSON.stringify(mek, null, 2) + reset);
         console.log(red + "☰".repeat(32) + reset);
 
-        // Auto mark as seen and read (using dynamic config)
-        if (config.READ_MESSAGE === true) {
+        // Auto mark as seen and read (using dynamic config with toBool helper)
+        if (toBool(config.READ_MESSAGE)) {
             try {
                 const from = mek.key.remoteJid;
                 const id = mek.key.id;
@@ -550,10 +562,10 @@ function setupMessageHandlers(conn, number) {
             }
         }
 
-        // Status updates handling (using dynamic config)
+        // Status updates handling (using dynamic config with toBool helper)
         if (mek.key && mek.key.remoteJid === 'status@broadcast') {
             // Auto read Status
-            if (config.AUTO_READ_STATUS === "true") {
+            if (toBool(config.AUTO_READ_STATUS)) {
                 try {
                     await conn.readMessages([mek.key]);
                     console.log(green + `Status from ${mek.key.participant || mek.key.remoteJid} marked as read for ${number}.` + reset);
@@ -563,7 +575,7 @@ function setupMessageHandlers(conn, number) {
             }
 
             // Auto react to Status
-            if (config.AUTO_REACT_STATUS === "true") {
+            if (toBool(config.AUTO_REACT_STATUS)) {
                 try {
                     await conn.sendMessage(
                         mek.key.participant || mek.key.remoteJid,
@@ -675,9 +687,9 @@ function setupMessageHandlers(conn, number) {
             conn.sendMessage(from, { text: teks }, { quoted: mek });
         }
 
-        // ANTI-DELETE SYSTEM (using dynamic config)
+        // ANTI-DELETE SYSTEM (FIXED - using toBool helper)
         if(!isOwner) {
-            if(config.ANTI_DELETE === "true") {
+            if(toBool(config.ANTI_DELETE)) {
                 if (!m.id.startsWith("BAE5")) {
                     const baseDir = 'message_data';
                     if (!fs.existsSync(baseDir)) {
@@ -986,7 +998,7 @@ function setupMessageHandlers(conn, number) {
             }
         }
 
-        // WORK TYPE (using dynamic config)
+        // WORK TYPE (FIXED - using toBool helper)
         if (config.MODE === "private" && !isOwner) return;
         if (config.MODE === "inbox" && isGroup) return;
         if (config.MODE === "groups" && !isGroup) return;
