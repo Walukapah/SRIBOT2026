@@ -5,7 +5,7 @@ function convertToBool(text, fault = 'true') {
     return text === fault ? true : false;
 }
 
-// Base config object
+// Base config object - this is the fallback
 const baseConfig = {
     SESSION_ID: process.env.SESSION_ID,
     PREFIX: process.env.PREFIX || ".",
@@ -31,17 +31,22 @@ const baseConfig = {
 
 // User-specific configs storage (in memory)
 const userConfigs = new Map();
-// Store current active number for context
-let currentActiveNumber = null;
 
-// Set current active number (call this when message received)
-function setCurrentNumber(number) {
-    currentActiveNumber = number ? number.replace(/[^0-9]/g, '') : null;
+// Default number for direct config access (will use baseConfig)
+let defaultNumber = null;
+
+// Set default number for this instance
+function setDefaultNumber(number) {
+    defaultNumber = number ? number.replace(/[^0-9]/g, '') : null;
 }
 
-// Get current active number
+// Get current number (from context or default)
 function getCurrentNumber() {
-    return currentActiveNumber;
+    // Try to get from global context if set by index.js
+    if (global.currentBotNumber) {
+        return global.currentBotNumber;
+    }
+    return defaultNumber;
 }
 
 // Get config for specific number (with GitHub integration)
@@ -78,6 +83,34 @@ async function getConfig(number) {
     }
 }
 
+// Get config synchronously (for non-async contexts)
+function getConfigSync(number) {
+    const sanitizedNumber = number ? number.replace(/[^0-9]/g, '') : getCurrentNumber();
+    
+    if (!sanitizedNumber) {
+        return { ...baseConfig };
+    }
+    
+    if (userConfigs.has(sanitizedNumber)) {
+        return userConfigs.get(sanitizedNumber);
+    }
+    
+    // Try local cache file
+    try {
+        const localPath = `./sessions/config_${sanitizedNumber}.json`;
+        if (fs.existsSync(localPath)) {
+            const content = fs.readFileSync(localPath, 'utf8');
+            const userConfig = { ...baseConfig, ...JSON.parse(content) };
+            userConfigs.set(sanitizedNumber, userConfig);
+            return userConfig;
+        }
+    } catch (e) {
+        // Ignore errors
+    }
+    
+    return { ...baseConfig };
+}
+
 // Update config for specific number (with GitHub integration)
 async function updateConfig(number, newConfig) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
@@ -88,6 +121,16 @@ async function updateConfig(number, newConfig) {
     
     // Update cache
     userConfigs.set(sanitizedNumber, updatedConfig);
+    
+    // Save locally first
+    try {
+        const configPath = `./sessions/config_${sanitizedNumber}.json`;
+        const dir = './sessions';
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2));
+    } catch (localError) {
+        console.error('❌ Failed to save config locally:', localError);
+    }
     
     // Save to GitHub
     try {
@@ -121,22 +164,11 @@ async function updateConfig(number, newConfig) {
             sha: sha || undefined,
         });
         
-        console.log(`Config updated on GitHub for ${sanitizedNumber}`);
+        console.log(`✅ Config updated on GitHub for ${sanitizedNumber}`);
         return true;
     } catch (error) {
-        console.error('Failed to save config to GitHub:', error);
-        
-        // Fallback to local file
-        try {
-            const configPath = `./sessions/config_${sanitizedNumber}.json`;
-            const dir = './sessions';
-            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-            fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2));
-            return true;
-        } catch (localError) {
-            console.error('Failed to save config locally:', localError);
-            return false;
-        }
+        console.error('❌ Failed to save config to GitHub:', error);
+        return true; // Still return true since we saved locally
     }
 }
 
@@ -144,6 +176,16 @@ async function updateConfig(number, newConfig) {
 async function resetConfig(number) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
     userConfigs.delete(sanitizedNumber);
+    
+    // Delete local file
+    try {
+        const localPath = `./sessions/config_${sanitizedNumber}.json`;
+        if (fs.existsSync(localPath)) {
+            fs.unlinkSync(localPath);
+        }
+    } catch (e) {
+        // Ignore
+    }
     
     // Delete from GitHub
     try {
@@ -173,41 +215,38 @@ async function resetConfig(number) {
     }
 }
 
-// Create a Proxy that returns user-specific config based on current context
-const configProxy = new Proxy({}, {
-    get(target, prop) {
-        // If we have a current active number, try to get user-specific config
-        if (currentActiveNumber && userConfigs.has(currentActiveNumber)) {
-            const userConfig = userConfigs.get(currentActiveNumber);
-            if (userConfig[prop] !== undefined) {
-                return userConfig[prop];
-            }
-        }
-        // Fallback to base config
-        return baseConfig[prop];
-    },
-    set(target, prop, value) {
-        // Update the user-specific config if we have an active number
-        if (currentActiveNumber) {
-            const currentConfig = userConfigs.get(currentActiveNumber) || { ...baseConfig };
-            currentConfig[prop] = value;
-            userConfigs.set(currentActiveNumber, currentConfig);
-        }
-        return true;
+// Create a dynamic config proxy that always gets fresh values
+function createDynamicConfig(number) {
+    const configObj = {};
+    
+    // Create getters for all baseConfig keys
+    for (const key of Object.keys(baseConfig)) {
+        Object.defineProperty(configObj, key, {
+            get: function() {
+                const currentNumber = number || getCurrentNumber();
+                if (currentNumber) {
+                    const cfg = getConfigSync(currentNumber);
+                    return cfg[key];
+                }
+                return baseConfig[key];
+            },
+            enumerable: true,
+            configurable: true
+        });
     }
-});
+    
+    return configObj;
+}
 
-module.exports = {
-    // Export the proxy as default config - this is what plugins will use
-    ...configProxy,
-    
-    // Also export base config for reference
-    baseConfig,
-    
-    // Export functions
-    getConfig,
-    updateConfig,
-    resetConfig,
-    setCurrentNumber,
-    getCurrentNumber
-};
+// Main dynamic config object
+const dynamicConfig = createDynamicConfig();
+
+// Also add the functions
+dynamicConfig.getConfig = getConfig;
+dynamicConfig.updateConfig = updateConfig;
+dynamicConfig.resetConfig = resetConfig;
+dynamicConfig.setDefaultNumber = setDefaultNumber;
+dynamicConfig.getConfigSync = getConfigSync;
+dynamicConfig.baseConfig = baseConfig;
+
+module.exports = dynamicConfig;
