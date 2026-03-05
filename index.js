@@ -70,233 +70,15 @@ if (!fs.existsSync(SESSION_BASE_PATH)) {
 }
 
 // ============================================
-// SIMPLE ANTI-DELETE SYSTEM (Memory Based)
+// MESSAGE STORE FOR ANTI DELETE (Per Number)
 // ============================================
+const messageStores = new Map();
 
-// Store recent messages in memory (last 100 messages per chat)
-// Key: message ID, Value: message data with all possible JIDs
-const recentMessages = new Map();
-
-// Get chat identifier (handle LID mapping)
-function getChatIdentifier(mek) {
-    // Use remoteJidAlt if available (real phone number), otherwise use remoteJid
-    return mek.key.remoteJidAlt || mek.key.remoteJid;
-}
-
-// Store message temporarily
-function storeMessage(mek) {
-    const msgId = mek.key.id;
-    const chatId = getChatIdentifier(mek);
-    const rawJid = mek.key.remoteJid;
-    
-    if (!recentMessages.has(chatId)) {
-        recentMessages.set(chatId, new Map());
+function getMessageStore(number) {
+    if (!messageStores.has(number)) {
+        messageStores.set(number, new Map());
     }
-    
-    const chatMessages = recentMessages.get(chatId);
-    
-    // Store message with both JIDs for LID compatibility
-    chatMessages.set(msgId, {
-        key: mek.key,
-        message: mek.message,
-        timestamp: mek.messageTimestamp,
-        pushName: mek.pushName,
-        rawJid: rawJid,
-        chatId: chatId
-    });
-    
-    // Keep only last 100 messages per chat
-    if (chatMessages.size > 100) {
-        const firstKey = chatMessages.keys().next().value;
-        chatMessages.delete(firstKey);
-    }
-    
-    console.log(`💾 Stored message ${msgId} for chat ${chatId}`);
-}
-
-// Handle message revoke (Anti-Delete)
-async function handleAntiDelete(conn, mek, number) {
-    try {
-        // Check if this is a protocol message (revoke/delete)
-        if (!mek.message?.protocolMessage) return;
-        
-        const protocolMsg = mek.message.protocolMessage;
-        
-        // Check if type is REVOKE (0 = REVOKE)
-        if (protocolMsg.type !== 0) return;
-        
-        const revokedKey = protocolMsg.key;
-        const revokedId = revokedKey.id;
-        const isFromMe = revokedKey.fromMe;
-        
-        console.log(`🗑️ Delete detected! Message ID: ${revokedId}, fromMe: ${isFromMe}`);
-        
-        // CASE 1: Someone else deleted their message (Recipient delete)
-        // We need to "restore" it by sending the content back
-        if (!isFromMe) {
-            console.log(`📥 Recipient deleted their message - attempting to restore`);
-            
-            // Try multiple possible JIDs to find the message
-            const possibleJids = [
-                revokedKey.remoteJid,
-                mek.key.remoteJid,
-                mek.key.remoteJidAlt,
-                revokedKey.remoteJidAlt
-            ].filter(Boolean);
-            
-            let originalMsg = null;
-            let foundChatId = null;
-            
-            // Search in all possible JIDs
-            for (const jid of possibleJids) {
-                const chatMessages = recentMessages.get(jid);
-                if (chatMessages && chatMessages.has(revokedId)) {
-                    originalMsg = chatMessages.get(revokedId);
-                    foundChatId = jid;
-                    console.log(`✅ Found recipient's deleted message in ${jid}`);
-                    break;
-                }
-            }
-            
-            // If not found, search all chats (fallback)
-            if (!originalMsg) {
-                console.log(`🔍 Searching all chats for recipient's message...`);
-                for (const [chatId, chatMessages] of recentMessages) {
-                    if (chatMessages.has(revokedId)) {
-                        originalMsg = chatMessages.get(revokedId);
-                        foundChatId = chatId;
-                        console.log(`✅ Found recipient's message in ${chatId} (fallback)`);
-                        break;
-                    }
-                }
-            }
-            
-            if (!originalMsg) {
-                console.log('❌ Recipient\'s original message not found in memory');
-                return;
-            }
-            
-            // Determine target chat (where to send the restored message)
-            const targetChat = mek.key.remoteJidAlt || mek.key.remoteJid || revokedKey.remoteJid;
-            
-            // Get message content
-            const msgType = getContentType(originalMsg.message);
-            const content = originalMsg.message[msgType];
-            
-            console.log(`📤 Restoring message to ${targetChat}, type: ${msgType}`);
-            
-            try {
-                // Send the message content back based on type
-                if (msgType === 'conversation' || msgType === 'extendedTextMessage') {
-                    const text = content.text || content;
-                    await conn.sendMessage(targetChat, {
-                        text: `🚫 *Anti-Delete Alert!*\n\n*User:* ${originalMsg.pushName || 'Unknown'}\n*Deleted Message:*\n\n${text}`
-                    });
-                } else if (msgType === 'imageMessage') {
-                    const caption = content.caption || '';
-                    // We need to re-download or use cached buffer
-                    // For now, just notify
-                    await conn.sendMessage(targetChat, {
-                        text: `🚫 *Anti-Delete Alert!*\n\n*User:* ${originalMsg.pushName || 'Unknown'}\n*Deleted an image${caption ? ' with caption: ' + caption : ''}*`
-                    });
-                } else if (msgType === 'videoMessage') {
-                    const caption = content.caption || '';
-                    await conn.sendMessage(targetChat, {
-                        text: `🚫 *Anti-Delete Alert!*\n\n*User:* ${originalMsg.pushName || 'Unknown'}\n*Deleted a video${caption ? ' with caption: ' + caption : ''}*`
-                    });
-                } else if (msgType === 'audioMessage') {
-                    await conn.sendMessage(targetChat, {
-                        text: `🚫 *Anti-Delete Alert!*\n\n*User:* ${originalMsg.pushName || 'Unknown'}\n*Deleted a voice message/audio*`
-                    });
-                } else if (msgType === 'stickerMessage') {
-                    await conn.sendMessage(targetChat, {
-                        text: `🚫 *Anti-Delete Alert!*\n\n*User:* ${originalMsg.pushName || 'Unknown'}\n*Deleted a sticker*`
-                    });
-                } else {
-                    await conn.sendMessage(targetChat, {
-                        text: `🚫 *Anti-Delete Alert!*\n\n*User:* ${originalMsg.pushName || 'Unknown'}\n*Deleted a ${msgType} message*`
-                    });
-                }
-                
-                console.log(`✅ Restored recipient's deleted message to ${targetChat}`);
-            } catch (sendError) {
-                console.error('❌ Failed to restore message:', sendError);
-            }
-            
-            // Clean up from memory
-            for (const [chatId, chatMessages] of recentMessages) {
-                if (chatMessages.has(revokedId)) {
-                    chatMessages.delete(revokedId);
-                }
-            }
-        }
-        
-        // CASE 2: We deleted our own message (Self delete / Anti-recall)
-        // Try to prevent the delete from propagating by re-revoking
-        else {
-            console.log(`📤 Self-delete detected - attempting anti-recall`);
-            
-            // Try multiple possible JIDs to find our message
-            const possibleJids = [
-                revokedKey.remoteJid,
-                mek.key.remoteJid,
-                mek.key.remoteJidAlt,
-                revokedKey.remoteJidAlt
-            ].filter(Boolean);
-            
-            let originalMsg = null;
-            
-            // Search in all possible JIDs
-            for (const jid of possibleJids) {
-                const chatMessages = recentMessages.get(jid);
-                if (chatMessages && chatMessages.has(revokedId)) {
-                    originalMsg = chatMessages.get(revokedId);
-                    console.log(`✅ Found our message in ${jid}`);
-                    break;
-                }
-            }
-            
-            // If not found, search all chats
-            if (!originalMsg) {
-                for (const [chatId, chatMessages] of recentMessages) {
-                    if (chatMessages.has(revokedId)) {
-                        originalMsg = chatMessages.get(revokedId);
-                        console.log(`✅ Found our message in ${chatId} (fallback)`);
-                        break;
-                    }
-                }
-            }
-            
-            if (!originalMsg) {
-                console.log('❌ Our original message not found in memory');
-                return;
-            }
-            
-            // Target chat where we need to re-revoke
-            const targetChat = revokedKey.remoteJid || originalMsg.rawJid || originalMsg.chatId;
-            
-            try {
-                // Re-send the revoke to ensure it stays deleted on recipient side
-                await conn.sendMessage(targetChat, {
-                    delete: originalMsg.key
-                });
-                
-                console.log(`✅ Anti-recall executed for message ${revokedId} in ${targetChat}`);
-            } catch (revokeError) {
-                console.error('❌ Anti-recall failed:', revokeError);
-            }
-            
-            // Clean up
-            for (const [chatId, chatMessages] of recentMessages) {
-                if (chatMessages.has(revokedId)) {
-                    chatMessages.delete(revokedId);
-                }
-            }
-        }
-        
-    } catch (error) {
-        console.error('Anti-delete error:', error);
-    }
+    return messageStores.get(number);
 }
 
 // ============================================
@@ -612,6 +394,9 @@ async function connectToWAMulti(number, res = null) {
         activeSockets.set(sanitizedNumber, conn);
         socketCreationTime.set(sanitizedNumber, Date.now());
 
+        // Get message store for this number
+        const messageStore = getMessageStore(sanitizedNumber);
+
         // GitHub: Save creds to GitHub when updated
         conn.ev.on('creds.update', async () => {
             await saveCreds();
@@ -631,6 +416,7 @@ async function connectToWAMulti(number, res = null) {
 
                 activeSockets.delete(sanitizedNumber);
                 socketCreationTime.delete(sanitizedNumber);
+                messageStores.delete(sanitizedNumber); // Clean up message store
 
                 if (shouldReconnect) {
                     await delay(5000);
@@ -706,7 +492,7 @@ async function connectToWAMulti(number, res = null) {
         });
 
         // Setup message handlers for this connection
-        setupMessageHandlers(conn, sanitizedNumber);
+        setupMessageHandlers(conn, sanitizedNumber, messageStore);
 
         // Request pairing code if not registered
         if (!conn.authState.creds.registered) {
@@ -730,6 +516,7 @@ async function connectToWAMulti(number, res = null) {
         console.error(`Failed to connect number ${sanitizedNumber}:`, error);
         activeSockets.delete(sanitizedNumber);
         socketCreationTime.delete(sanitizedNumber);
+        messageStores.delete(sanitizedNumber);
         if (res && !res.headersSent) {
             res.status(500).send({ error: 'Service Unavailable or Connection Failed.' });
         }
@@ -737,10 +524,10 @@ async function connectToWAMulti(number, res = null) {
 }
 
 // ============================================
-// MESSAGE HANDLERS WITH SIMPLE ANTI-DELETE
+// MESSAGE HANDLERS WITH PER-NUMBER CONFIGS
 // ============================================
 
-function setupMessageHandlers(conn, number) {
+function setupMessageHandlers(conn, number, messageStore) {
     // Set global context for this number so config.js can access it
     global.currentBotNumber = number;
     
@@ -805,18 +592,6 @@ function setupMessageHandlers(conn, number) {
                 }
             }
             return;
-        }
-
-        // ============================================
-        // SIMPLE ANTI-DELETE: Store normal messages
-        // ============================================
-        
-        // Store message if it's not a protocol message (not a revoke)
-        if (!mek.message?.protocolMessage) {
-            storeMessage(mek);
-        } else {
-            // Handle revoke message
-            await handleAntiDelete(conn, mek, number);
         }
 
         const m = sms(conn, mek);
@@ -917,6 +692,73 @@ function setupMessageHandlers(conn, number) {
             conn.sendMessage(from, { text: teks }, { quoted: mek });
         }
 
+        // ===============================
+        // SIMPLE ANTI DELETE SYSTEM
+        // ===============================
+        
+        // Check if anti-delete is enabled in config
+        if (config.ANTI_DELETE === "true") {
+            
+            // Save normal text messages to store (only if not from bot itself)
+            if (!mek.key.fromMe && mek.message?.conversation) {
+                messageStore.set(mek.key.id, {
+                    text: mek.message.conversation,
+                    jid: mek.key.remoteJid,
+                    sender: mek.key.participant || mek.key.remoteJid,
+                    timestamp: Date.now()
+                });
+                
+                // Limit store size to prevent memory issues (keep last 1000 messages)
+                if (messageStore.size > 1000) {
+                    const firstKey = messageStore.keys().next().value;
+                    messageStore.delete(firstKey);
+                }
+            }
+            
+            // Also save extended text messages (with context/quoted)
+            if (!mek.key.fromMe && mek.message?.extendedTextMessage?.text) {
+                messageStore.set(mek.key.id, {
+                    text: mek.message.extendedTextMessage.text,
+                    jid: mek.key.remoteJid,
+                    sender: mek.key.participant || mek.key.remoteJid,
+                    timestamp: Date.now()
+                });
+                
+                // Limit store size
+                if (messageStore.size > 1000) {
+                    const firstKey = messageStore.keys().next().value;
+                    messageStore.delete(firstKey);
+                }
+            }
+
+            // Detect revoke/delete message
+            if (mek.message?.protocolMessage?.type === 0) { // 0 = REVOKE in Baileys
+                
+                const deletedId = mek.message.protocolMessage.key.id;
+                const deletedJid = mek.message.protocolMessage.key.remoteJid;
+                const deletedBy = mek.key.participant || mek.key.remoteJid;
+
+                const msg = messageStore.get(deletedId);
+
+                if (msg) {
+                    const deletedByNumber = deletedBy.split('@')[0];
+                    const sentByNumber = msg.sender.split('@')[0];
+                    
+                    // Don't show if bot deleted it
+                    if (deletedByNumber.includes(botNumber)) return;
+                    
+                    const xx = '```';
+                    
+                    await conn.sendMessage(msg.jid, {
+                        text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_\n\n> 🔓 Message Text: ${xx}${msg.text}${xx}`
+                    });
+                    
+                    // Remove from memory after sending
+                    messageStore.delete(deletedId);
+                }
+            }
+        }
+        
         conn.sendFileUrl = async (jid, url, caption, quoted, options = {}) => {
             let mime = '';
             let res = await axios.head(url);
@@ -1059,6 +901,7 @@ app.get("/disconnect", async (req, res) => {
             await socket.logout();
             activeSockets.delete(sanitizedNumber);
             socketCreationTime.delete(sanitizedNumber);
+            messageStores.delete(sanitizedNumber); // Clean up message store
             await fsExtra.remove(path.join(SESSION_BASE_PATH, `session_${sanitizedNumber}`));
             await deleteSessionFromGitHub(sanitizedNumber);
             await removeNumberFromStorage(sanitizedNumber);
