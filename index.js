@@ -47,6 +47,9 @@ const util = require('util');
 const { sms, downloadMediaMessage } = require('./lib/msg');
 const axios = require('axios');
 
+// IMPORTANT: Define port here
+const port = process.env.PORT || 8000;
+
 // GitHub Configuration
 const octokit = new Octokit({
     auth: process.env.GITHUB_TOKEN
@@ -96,7 +99,7 @@ async function loadNumbersFromGitHub() {
         const content = Buffer.from(data.content, 'base64').toString('utf8');
         return JSON.parse(content);
     } catch (error) {
-        console.warn('No numbers.json found on GitHub, creating new one');
+        console.warn('[STARTUP] No numbers.json found on GitHub, creating new one');
         return [];
     }
 }
@@ -473,8 +476,8 @@ async function connectToWAMulti(number, res = null) {
                 const currentConfig = config.getConfigSync(sanitizedNumber);
                 
                 const caption = formatMessage(
-                    '*Connected Successful *',
-                    `Number: ${sanitizedNumber}\nStatus: Online\nSession: Saved to GitHub\nBot: ${currentConfig.BOT_NAME}`,
+                    '*Connected Successful ✅*',
+                    `📞 Number: ${sanitizedNumber}\n🩵 Status: Online\n💾 Session: Saved to GitHub`,
                     `${currentConfig.BOT_NAME}`
                 );
 
