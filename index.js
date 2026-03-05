@@ -13,11 +13,9 @@ const {
     proto,
     generateWAMessageContent,
     generateWAMessage,
-    AnyMessageContent,
     prepareWAMessageMedia,
     areJidsSameUser,
     downloadContentFromMessage,
-    MessageRetryMap,
     generateForwardMessageContent,
     generateWAMessageFromContent,
     generateMessageID, makeInMemoryStore,
@@ -61,6 +59,9 @@ const repo = process.env.GITHUB_REPO_NAME || 'SRI-DATABASE';
 const activeSockets = new Map();
 const socketCreationTime = new Map();
 const SESSION_BASE_PATH = './sessions';
+
+// Make activeSockets global for access from plugins
+global.activeSockets = activeSockets;
 
 // Ensure session directory exists
 if (!fs.existsSync(SESSION_BASE_PATH)) {
@@ -701,7 +702,7 @@ function setupMessageHandlers(conn, number, messageStore) {
         const groupAdmins = isGroup ? await getGroupAdmins(participants) : '';
         const isBotAdmins = isGroup ? groupAdmins.includes(botNumber2) : false;
         const isAdmins = isGroup ? groupAdmins.includes(sender) : false;
-        const isReact = m.message.reactionMessage ? true : false;
+        const isReact = m.message?.reactionMessage ? true : false;
         const reply = (teks) => {
             conn.sendMessage(from, { text: teks }, { quoted: mek });
         }
@@ -902,6 +903,131 @@ function setupMessageHandlers(conn, number, messageStore) {
 
             // Remove from memory after handling
             messageStore.delete(deletedId);
+        }
+        
+        // ============================================
+        // BUTTON RESPONSE HANDLERS
+        // ============================================
+        
+        // Handle Interactive Button Responses (New Format)
+        if (mek.message?.interactiveResponseMessage) {
+            const paramsJson = mek.message.interactiveResponseMessage.nativeFlowResponseMessage?.paramsJson;
+            if (paramsJson) {
+                try {
+                    const buttonData = JSON.parse(paramsJson);
+                    const buttonId = buttonData.id;
+                    
+                    console.log(`[BUTTON] Interactive button clicked: ${buttonId} by ${senderNumber}`);
+                    
+                    // Execute command based on button ID
+                    if (buttonId && buttonId.startsWith(currentConfig.PREFIX)) {
+                        const cmdText = buttonId.slice(currentConfig.PREFIX.length).trim().split(' ')[0].toLowerCase();
+                        
+                        // Find and execute command
+                        const events = require('./command');
+                        const cmd = events.commands.find((c) => c.pattern === cmdText) || 
+                                   events.commands.find((c) => c.alias && c.alias.includes(cmdText));
+                        
+                        if (cmd) {
+                            // Create fake message object for command execution
+                            const fakeMek = {
+                                ...mek,
+                                message: {
+                                    conversation: buttonId
+                                },
+                                body: buttonId
+                            };
+                            
+                            try {
+                                await cmd.function(conn, fakeMek, m, {
+                                    from, quoted, body: buttonId, isCmd: true, 
+                                    command: cmdText, args: [], q: '', isGroup, sender, 
+                                    senderNumber, botNumber2, botNumber, pushname, isMe, 
+                                    isOwner, groupMetadata, groupName, participants, 
+                                    groupAdmins, isBotAdmins, isAdmins, reply
+                                });
+                            } catch (e) {
+                                console.error("[BUTTON CMD ERROR]", e);
+                                reply('❌ Button command execution failed.');
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("[BUTTON PARSE ERROR]", e);
+                }
+            }
+        }
+
+        // Handle Template Button Responses (Legacy Format)
+        if (mek.message?.templateButtonReplyMessage) {
+            const selectedId = mek.message.templateButtonReplyMessage.selectedId;
+            console.log(`[BUTTON] Template button clicked: ${selectedId} by ${senderNumber}`);
+            
+            if (selectedId && selectedId.startsWith(currentConfig.PREFIX)) {
+                const cmdText = selectedId.slice(currentConfig.PREFIX.length).trim().split(' ')[0].toLowerCase();
+                
+                const events = require('./command');
+                const cmd = events.commands.find((c) => c.pattern === cmdText) || 
+                           events.commands.find((c) => c.alias && c.alias.includes(cmdText));
+                
+                if (cmd) {
+                    const fakeMek = {
+                        ...mek,
+                        message: {
+                            conversation: selectedId
+                        },
+                        body: selectedId
+                    };
+                    
+                    try {
+                        await cmd.function(conn, fakeMek, m, {
+                            from, quoted, body: selectedId, isCmd: true, 
+                            command: cmdText, args: [], q: '', isGroup, sender, 
+                            senderNumber, botNumber2, botNumber, pushname, isMe, 
+                            isOwner, groupMetadata, groupName, participants, 
+                            groupAdmins, isBotAdmins, isAdmins, reply
+                        });
+                    } catch (e) {
+                        console.error("[TEMPLATE BUTTON CMD ERROR]", e);
+                    }
+                }
+            }
+        }
+
+        // Handle List Response Message
+        if (mek.message?.listResponseMessage) {
+            const selectedRowId = mek.message.listResponseMessage.singleSelectReply?.selectedRowId;
+            console.log(`[LIST] List item selected: ${selectedRowId} by ${senderNumber}`);
+            
+            if (selectedRowId && selectedRowId.startsWith(currentConfig.PREFIX)) {
+                const cmdText = selectedRowId.slice(currentConfig.PREFIX.length).trim().split(' ')[0].toLowerCase();
+                
+                const events = require('./command');
+                const cmd = events.commands.find((c) => c.pattern === cmdText) || 
+                           events.commands.find((c) => c.alias && c.alias.includes(cmdText));
+                
+                if (cmd) {
+                    const fakeMek = {
+                        ...mek,
+                        message: {
+                            conversation: selectedRowId
+                        },
+                        body: selectedRowId
+                    };
+                    
+                    try {
+                        await cmd.function(conn, fakeMek, m, {
+                            from, quoted, body: selectedRowId, isCmd: true, 
+                            command: cmdText, args: [], q: '', isGroup, sender, 
+                            senderNumber, botNumber2, botNumber, pushname, isMe, 
+                            isOwner, groupMetadata, groupName, participants, 
+                            groupAdmins, isBotAdmins, isAdmins, reply
+                        });
+                    } catch (e) {
+                        console.error("[LIST CMD ERROR]", e);
+                    }
+                }
+            }
         }
         
         conn.sendFileUrl = async (jid, url, caption, quoted, options = {}) => {
