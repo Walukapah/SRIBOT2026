@@ -127,68 +127,170 @@ async function handleAntiDelete(conn, mek, number) {
         
         const revokedKey = protocolMsg.key;
         const revokedId = revokedKey.id;
+        const isFromMe = revokedKey.fromMe;
         
-        // Try multiple possible JIDs to find the message
-        const possibleJids = [
-            revokedKey.remoteJid,
-            mek.key.remoteJid,
-            mek.key.remoteJidAlt,
-            revokedKey.remoteJidAlt
-        ].filter(Boolean); // Remove undefined/null
+        console.log(`🗑️ Delete detected! Message ID: ${revokedId}, fromMe: ${isFromMe}`);
         
-        console.log(`🗑️ Delete detected! Message ID: ${revokedId}`);
-        console.log(`🔍 Searching in JIDs:`, possibleJids);
-        
-        let originalMsg = null;
-        let foundChatId = null;
-        
-        // Search in all possible JIDs
-        for (const jid of possibleJids) {
-            const chatMessages = recentMessages.get(jid);
-            if (chatMessages && chatMessages.has(revokedId)) {
-                originalMsg = chatMessages.get(revokedId);
-                foundChatId = jid;
-                console.log(`✅ Found message in ${jid}`);
-                break;
+        // CASE 1: Someone else deleted their message (Recipient delete)
+        // We need to "restore" it by sending the content back
+        if (!isFromMe) {
+            console.log(`📥 Recipient deleted their message - attempting to restore`);
+            
+            // Try multiple possible JIDs to find the message
+            const possibleJids = [
+                revokedKey.remoteJid,
+                mek.key.remoteJid,
+                mek.key.remoteJidAlt,
+                revokedKey.remoteJidAlt
+            ].filter(Boolean);
+            
+            let originalMsg = null;
+            let foundChatId = null;
+            
+            // Search in all possible JIDs
+            for (const jid of possibleJids) {
+                const chatMessages = recentMessages.get(jid);
+                if (chatMessages && chatMessages.has(revokedId)) {
+                    originalMsg = chatMessages.get(revokedId);
+                    foundChatId = jid;
+                    console.log(`✅ Found recipient's deleted message in ${jid}`);
+                    break;
+                }
             }
-        }
-        
-        // If not found, search all chats (fallback)
-        if (!originalMsg) {
-            console.log(`🔍 Searching all chats...`);
+            
+            // If not found, search all chats (fallback)
+            if (!originalMsg) {
+                console.log(`🔍 Searching all chats for recipient's message...`);
+                for (const [chatId, chatMessages] of recentMessages) {
+                    if (chatMessages.has(revokedId)) {
+                        originalMsg = chatMessages.get(revokedId);
+                        foundChatId = chatId;
+                        console.log(`✅ Found recipient's message in ${chatId} (fallback)`);
+                        break;
+                    }
+                }
+            }
+            
+            if (!originalMsg) {
+                console.log('❌ Recipient\'s original message not found in memory');
+                return;
+            }
+            
+            // Determine target chat (where to send the restored message)
+            const targetChat = mek.key.remoteJidAlt || mek.key.remoteJid || revokedKey.remoteJid;
+            
+            // Get message content
+            const msgType = getContentType(originalMsg.message);
+            const content = originalMsg.message[msgType];
+            
+            console.log(`📤 Restoring message to ${targetChat}, type: ${msgType}`);
+            
+            try {
+                // Send the message content back based on type
+                if (msgType === 'conversation' || msgType === 'extendedTextMessage') {
+                    const text = content.text || content;
+                    await conn.sendMessage(targetChat, {
+                        text: `🚫 *Anti-Delete Alert!*\n\n*User:* ${originalMsg.pushName || 'Unknown'}\n*Deleted Message:*\n\n${text}`
+                    });
+                } else if (msgType === 'imageMessage') {
+                    const caption = content.caption || '';
+                    // We need to re-download or use cached buffer
+                    // For now, just notify
+                    await conn.sendMessage(targetChat, {
+                        text: `🚫 *Anti-Delete Alert!*\n\n*User:* ${originalMsg.pushName || 'Unknown'}\n*Deleted an image${caption ? ' with caption: ' + caption : ''}*`
+                    });
+                } else if (msgType === 'videoMessage') {
+                    const caption = content.caption || '';
+                    await conn.sendMessage(targetChat, {
+                        text: `🚫 *Anti-Delete Alert!*\n\n*User:* ${originalMsg.pushName || 'Unknown'}\n*Deleted a video${caption ? ' with caption: ' + caption : ''}*`
+                    });
+                } else if (msgType === 'audioMessage') {
+                    await conn.sendMessage(targetChat, {
+                        text: `🚫 *Anti-Delete Alert!*\n\n*User:* ${originalMsg.pushName || 'Unknown'}\n*Deleted a voice message/audio*`
+                    });
+                } else if (msgType === 'stickerMessage') {
+                    await conn.sendMessage(targetChat, {
+                        text: `🚫 *Anti-Delete Alert!*\n\n*User:* ${originalMsg.pushName || 'Unknown'}\n*Deleted a sticker*`
+                    });
+                } else {
+                    await conn.sendMessage(targetChat, {
+                        text: `🚫 *Anti-Delete Alert!*\n\n*User:* ${originalMsg.pushName || 'Unknown'}\n*Deleted a ${msgType} message*`
+                    });
+                }
+                
+                console.log(`✅ Restored recipient's deleted message to ${targetChat}`);
+            } catch (sendError) {
+                console.error('❌ Failed to restore message:', sendError);
+            }
+            
+            // Clean up from memory
             for (const [chatId, chatMessages] of recentMessages) {
                 if (chatMessages.has(revokedId)) {
-                    originalMsg = chatMessages.get(revokedId);
-                    foundChatId = chatId;
-                    console.log(`✅ Found message in ${chatId} (fallback search)`);
-                    break;
+                    chatMessages.delete(revokedId);
                 }
             }
         }
         
-        if (!originalMsg) {
-            console.log('❌ Original message not found in memory');
-            return;
-        }
-        
-        // Determine target chat for revoke
-        // Use the JID where we need to send the revoke
-        const targetChat = revokedKey.remoteJid || originalMsg.rawJid || originalMsg.chatId;
-        
-        console.log(`🎯 Target chat for revoke: ${targetChat}`);
-        
-        // Send revoke message back
-        await conn.sendMessage(targetChat, {
-            delete: originalMsg.key
-        });
-        
-        console.log(`✅ Auto-revoked message ${revokedId} for ${number}`);
-        
-        // Clean up stored message from all possible locations
-        for (const [chatId, chatMessages] of recentMessages) {
-            if (chatMessages.has(revokedId)) {
-                chatMessages.delete(revokedId);
-                console.log(`🧹 Cleaned up message from ${chatId}`);
+        // CASE 2: We deleted our own message (Self delete / Anti-recall)
+        // Try to prevent the delete from propagating by re-revoking
+        else {
+            console.log(`📤 Self-delete detected - attempting anti-recall`);
+            
+            // Try multiple possible JIDs to find our message
+            const possibleJids = [
+                revokedKey.remoteJid,
+                mek.key.remoteJid,
+                mek.key.remoteJidAlt,
+                revokedKey.remoteJidAlt
+            ].filter(Boolean);
+            
+            let originalMsg = null;
+            
+            // Search in all possible JIDs
+            for (const jid of possibleJids) {
+                const chatMessages = recentMessages.get(jid);
+                if (chatMessages && chatMessages.has(revokedId)) {
+                    originalMsg = chatMessages.get(revokedId);
+                    console.log(`✅ Found our message in ${jid}`);
+                    break;
+                }
+            }
+            
+            // If not found, search all chats
+            if (!originalMsg) {
+                for (const [chatId, chatMessages] of recentMessages) {
+                    if (chatMessages.has(revokedId)) {
+                        originalMsg = chatMessages.get(revokedId);
+                        console.log(`✅ Found our message in ${chatId} (fallback)`);
+                        break;
+                    }
+                }
+            }
+            
+            if (!originalMsg) {
+                console.log('❌ Our original message not found in memory');
+                return;
+            }
+            
+            // Target chat where we need to re-revoke
+            const targetChat = revokedKey.remoteJid || originalMsg.rawJid || originalMsg.chatId;
+            
+            try {
+                // Re-send the revoke to ensure it stays deleted on recipient side
+                await conn.sendMessage(targetChat, {
+                    delete: originalMsg.key
+                });
+                
+                console.log(`✅ Anti-recall executed for message ${revokedId} in ${targetChat}`);
+            } catch (revokeError) {
+                console.error('❌ Anti-recall failed:', revokeError);
+            }
+            
+            // Clean up
+            for (const [chatId, chatMessages] of recentMessages) {
+                if (chatMessages.has(revokedId)) {
+                    chatMessages.delete(revokedId);
+                }
             }
         }
         
