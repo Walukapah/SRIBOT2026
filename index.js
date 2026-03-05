@@ -74,12 +74,20 @@ if (!fs.existsSync(SESSION_BASE_PATH)) {
 // ============================================
 
 // Store recent messages in memory (last 100 messages per chat)
+// Key: message ID, Value: message data with all possible JIDs
 const recentMessages = new Map();
+
+// Get chat identifier (handle LID mapping)
+function getChatIdentifier(mek) {
+    // Use remoteJidAlt if available (real phone number), otherwise use remoteJid
+    return mek.key.remoteJidAlt || mek.key.remoteJid;
+}
 
 // Store message temporarily
 function storeMessage(mek) {
-    const chatId = mek.key.remoteJid;
     const msgId = mek.key.id;
+    const chatId = getChatIdentifier(mek);
+    const rawJid = mek.key.remoteJid;
     
     if (!recentMessages.has(chatId)) {
         recentMessages.set(chatId, new Map());
@@ -87,12 +95,14 @@ function storeMessage(mek) {
     
     const chatMessages = recentMessages.get(chatId);
     
-    // Store only necessary data
+    // Store message with both JIDs for LID compatibility
     chatMessages.set(msgId, {
         key: mek.key,
         message: mek.message,
         timestamp: mek.messageTimestamp,
-        pushName: mek.pushName
+        pushName: mek.pushName,
+        rawJid: rawJid,
+        chatId: chatId
     });
     
     // Keep only last 100 messages per chat
@@ -100,6 +110,8 @@ function storeMessage(mek) {
         const firstKey = chatMessages.keys().next().value;
         chatMessages.delete(firstKey);
     }
+    
+    console.log(`💾 Stored message ${msgId} for chat ${chatId}`);
 }
 
 // Handle message revoke (Anti-Delete)
@@ -115,28 +127,70 @@ async function handleAntiDelete(conn, mek, number) {
         
         const revokedKey = protocolMsg.key;
         const revokedId = revokedKey.id;
-        const revokedChat = revokedKey.remoteJid;
         
-        console.log(`🗑️ Delete detected! Message ID: ${revokedId} in ${revokedChat}`);
+        // Try multiple possible JIDs to find the message
+        const possibleJids = [
+            revokedKey.remoteJid,
+            mek.key.remoteJid,
+            mek.key.remoteJidAlt,
+            revokedKey.remoteJidAlt
+        ].filter(Boolean); // Remove undefined/null
         
-        // Get stored message
-        const chatMessages = recentMessages.get(revokedChat);
-        if (!chatMessages || !chatMessages.has(revokedId)) {
+        console.log(`🗑️ Delete detected! Message ID: ${revokedId}`);
+        console.log(`🔍 Searching in JIDs:`, possibleJids);
+        
+        let originalMsg = null;
+        let foundChatId = null;
+        
+        // Search in all possible JIDs
+        for (const jid of possibleJids) {
+            const chatMessages = recentMessages.get(jid);
+            if (chatMessages && chatMessages.has(revokedId)) {
+                originalMsg = chatMessages.get(revokedId);
+                foundChatId = jid;
+                console.log(`✅ Found message in ${jid}`);
+                break;
+            }
+        }
+        
+        // If not found, search all chats (fallback)
+        if (!originalMsg) {
+            console.log(`🔍 Searching all chats...`);
+            for (const [chatId, chatMessages] of recentMessages) {
+                if (chatMessages.has(revokedId)) {
+                    originalMsg = chatMessages.get(revokedId);
+                    foundChatId = chatId;
+                    console.log(`✅ Found message in ${chatId} (fallback search)`);
+                    break;
+                }
+            }
+        }
+        
+        if (!originalMsg) {
             console.log('❌ Original message not found in memory');
             return;
         }
         
-        const originalMsg = chatMessages.get(revokedId);
+        // Determine target chat for revoke
+        // Use the JID where we need to send the revoke
+        const targetChat = revokedKey.remoteJid || originalMsg.rawJid || originalMsg.chatId;
         
-        // Send revoke message back to the same chat
-        await conn.sendMessage(revokedChat, {
+        console.log(`🎯 Target chat for revoke: ${targetChat}`);
+        
+        // Send revoke message back
+        await conn.sendMessage(targetChat, {
             delete: originalMsg.key
         });
         
         console.log(`✅ Auto-revoked message ${revokedId} for ${number}`);
         
-        // Clean up stored message
-        chatMessages.delete(revokedId);
+        // Clean up stored message from all possible locations
+        for (const [chatId, chatMessages] of recentMessages) {
+            if (chatMessages.has(revokedId)) {
+                chatMessages.delete(revokedId);
+                console.log(`🧹 Cleaned up message from ${chatId}`);
+            }
+        }
         
     } catch (error) {
         console.error('Anti-delete error:', error);
