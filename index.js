@@ -70,15 +70,15 @@ if (!fs.existsSync(SESSION_BASE_PATH)) {
 }
 
 // ============================================
-// ANTI DELETE STORE (Per Number)
+// MESSAGE STORE FOR ANTI DELETE (Per Number)
 // ============================================
-const antiDeleteStores = new Map();
+const messageStores = new Map();
 
-function getAntiDeleteStore(number) {
-    if (!antiDeleteStores.has(number)) {
-        antiDeleteStores.set(number, new Map());
+function getMessageStore(number) {
+    if (!messageStores.has(number)) {
+        messageStores.set(number, new Map());
     }
-    return antiDeleteStores.get(number);
+    return messageStores.get(number);
 }
 
 // ============================================
@@ -394,8 +394,8 @@ async function connectToWAMulti(number, res = null) {
         activeSockets.set(sanitizedNumber, conn);
         socketCreationTime.set(sanitizedNumber, Date.now());
 
-        // Get anti-delete store for this number
-        const antiDeleteStore = getAntiDeleteStore(sanitizedNumber);
+        // Get message store for this number
+        const messageStore = getMessageStore(sanitizedNumber);
 
         // GitHub: Save creds to GitHub when updated
         conn.ev.on('creds.update', async () => {
@@ -416,7 +416,7 @@ async function connectToWAMulti(number, res = null) {
 
                 activeSockets.delete(sanitizedNumber);
                 socketCreationTime.delete(sanitizedNumber);
-                antiDeleteStores.delete(sanitizedNumber); // Clean up store
+                messageStores.delete(sanitizedNumber); // Clean up message store
 
                 if (shouldReconnect) {
                     await delay(5000);
@@ -492,7 +492,7 @@ async function connectToWAMulti(number, res = null) {
         });
 
         // Setup message handlers for this connection
-        setupMessageHandlers(conn, sanitizedNumber, antiDeleteStore);
+        setupMessageHandlers(conn, sanitizedNumber, messageStore);
 
         // Request pairing code if not registered
         if (!conn.authState.creds.registered) {
@@ -516,7 +516,7 @@ async function connectToWAMulti(number, res = null) {
         console.error(`Failed to connect number ${sanitizedNumber}:`, error);
         activeSockets.delete(sanitizedNumber);
         socketCreationTime.delete(sanitizedNumber);
-        antiDeleteStores.delete(sanitizedNumber);
+        messageStores.delete(sanitizedNumber);
         if (res && !res.headersSent) {
             res.status(500).send({ error: 'Service Unavailable or Connection Failed.' });
         }
@@ -527,7 +527,7 @@ async function connectToWAMulti(number, res = null) {
 // MESSAGE HANDLERS WITH PER-NUMBER CONFIGS
 // ============================================
 
-function setupMessageHandlers(conn, number, antiDeleteStore) {
+function setupMessageHandlers(conn, number, messageStore) {
     // Set global context for this number so config.js can access it
     global.currentBotNumber = number;
     
@@ -693,22 +693,23 @@ function setupMessageHandlers(conn, number, antiDeleteStore) {
         }
 
         // =======================================
-        // ANTI DELETE - SAVE MESSAGES
+        // ANTI DELETE SYSTEM - SAVE MESSAGES
         // =======================================
         
         if (config.ANTI_DELETE === "true" && !mek.key.fromMe) {
             // Save all message types to store
-            antiDeleteStore.set(mek.key.id, {
-                jid: mek.key.remoteJid,
+            messageStore.set(mek.key.id, {
+                key: mek.key,
                 message: mek.message,
+                jid: mek.key.remoteJid,
                 sender: mek.key.participant || mek.key.remoteJid,
                 timestamp: Date.now()
             });
             
-            // Limit store size (keep last 500 messages to save memory for media)
-            if (antiDeleteStore.size > 500) {
-                const firstKey = antiDeleteStore.keys().next().value;
-                antiDeleteStore.delete(firstKey);
+            // Limit store size to prevent memory issues (keep last 1000 messages)
+            if (messageStore.size > 1000) {
+                const firstKey = messageStore.keys().next().value;
+                messageStore.delete(firstKey);
             }
         }
 
@@ -719,7 +720,7 @@ function setupMessageHandlers(conn, number, antiDeleteStore) {
         if (mek.message?.protocolMessage?.type === 0) { // 0 = REVOKE
 
             const deletedId = mek.message.protocolMessage.key.id;
-            const msg = antiDeleteStore.get(deletedId);
+            const msg = messageStore.get(deletedId);
 
             if (!msg) return;
 
@@ -731,22 +732,33 @@ function setupMessageHandlers(conn, number, antiDeleteStore) {
             
             // Don't show if bot deleted it
             if (deletedByNumber.includes(botNumber)) {
-                antiDeleteStore.delete(deletedId);
+                messageStore.delete(deletedId);
                 return;
             }
+            
+            // Create fake quoted message (the deleted message)
+            const quotedMessage = {
+                key: {
+                    remoteJid: msg.jid,
+                    fromMe: msg.sender.includes(botNumber),
+                    id: deletedId,
+                    participant: msg.sender
+                },
+                message: m
+            };
 
             // TEXT
             if (m.conversation) {
                 await conn.sendMessage(jid, {
-                    text: `🚫 *Deleted Message*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n${m.conversation}`
-                });
+                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_\n\n> 🔓 Message Text: \`\`\`${m.conversation}\`\`\``
+                }, { quoted: quotedMessage });
             }
 
             // EXTENDED TEXT (with caption or context)
             else if (m.extendedTextMessage) {
                 await conn.sendMessage(jid, {
-                    text: `🚫 *Deleted Message*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n${m.extendedTextMessage.text}`
-                });
+                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_\n\n> 🔓 Message Text: \`\`\`${m.extendedTextMessage.text}\`\`\``
+                }, { quoted: quotedMessage });
             }
 
             // IMAGE
@@ -754,20 +766,19 @@ function setupMessageHandlers(conn, number, antiDeleteStore) {
                 try {
                     const stream = await downloadContentFromMessage(m.imageMessage, 'image');
                     let buffer = Buffer.from([]);
-
                     for await (const chunk of stream) {
                         buffer = Buffer.concat([buffer, chunk]);
                     }
 
                     await conn.sendMessage(jid, {
                         image: buffer,
-                        caption: `🚫 *Deleted Image*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}${m.imageMessage.caption ? '\n\nCaption: ' + m.imageMessage.caption : ''}`
-                    });
+                        caption: `🚫 *Deleted Image*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_${m.imageMessage.caption ? '\n\n> 🔓 Caption: \`\`\`' + m.imageMessage.caption + '\`\`\`' : ''}`
+                    }, { quoted: quotedMessage });
                 } catch (err) {
                     console.error('Error downloading deleted image:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Image*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n❌ Failed to retrieve image`
-                    });
+                        text: `🚫 *Deleted Image (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                    }, { quoted: quotedMessage });
                 }
             }
 
@@ -776,20 +787,19 @@ function setupMessageHandlers(conn, number, antiDeleteStore) {
                 try {
                     const stream = await downloadContentFromMessage(m.videoMessage, 'video');
                     let buffer = Buffer.from([]);
-
                     for await (const chunk of stream) {
                         buffer = Buffer.concat([buffer, chunk]);
                     }
 
                     await conn.sendMessage(jid, {
                         video: buffer,
-                        caption: `🚫 *Deleted Video*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}${m.videoMessage.caption ? '\n\nCaption: ' + m.videoMessage.caption : ''}`
-                    });
+                        caption: `🚫 *Deleted Video*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_${m.videoMessage.caption ? '\n\n> 🔓 Caption: \`\`\`' + m.videoMessage.caption + '\`\`\`' : ''}`
+                    }, { quoted: quotedMessage });
                 } catch (err) {
                     console.error('Error downloading deleted video:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Video*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n❌ Failed to retrieve video`
-                    });
+                        text: `🚫 *Deleted Video (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                    }, { quoted: quotedMessage });
                 }
             }
 
@@ -798,7 +808,6 @@ function setupMessageHandlers(conn, number, antiDeleteStore) {
                 try {
                     const stream = await downloadContentFromMessage(m.audioMessage, 'audio');
                     let buffer = Buffer.from([]);
-
                     for await (const chunk of stream) {
                         buffer = Buffer.concat([buffer, chunk]);
                     }
@@ -806,19 +815,18 @@ function setupMessageHandlers(conn, number, antiDeleteStore) {
                     await conn.sendMessage(jid, {
                         audio: buffer,
                         mimetype: 'audio/mp4',
-                        ptt: m.audioMessage.ptt,
-                        caption: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'}*`
-                    });
+                        ptt: m.audioMessage.ptt || false
+                    }, { quoted: quotedMessage });
                     
                     // Send info text separately
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'}*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}`
+                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'}*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     });
                 } catch (err) {
                     console.error('Error downloading deleted audio:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'}*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n❌ Failed to retrieve audio`
-                    });
+                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'} (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                    }, { quoted: quotedMessage });
                 }
             }
 
@@ -827,7 +835,6 @@ function setupMessageHandlers(conn, number, antiDeleteStore) {
                 try {
                     const stream = await downloadContentFromMessage(m.documentMessage, 'document');
                     let buffer = Buffer.from([]);
-
                     for await (const chunk of stream) {
                         buffer = Buffer.concat([buffer, chunk]);
                     }
@@ -836,13 +843,13 @@ function setupMessageHandlers(conn, number, antiDeleteStore) {
                         document: buffer,
                         mimetype: m.documentMessage.mimetype,
                         fileName: m.documentMessage.fileName || "deleted-file",
-                        caption: `🚫 *Deleted Document*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}`
-                    });
+                        caption: `🚫 *Deleted Document*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                    }, { quoted: quotedMessage });
                 } catch (err) {
                     console.error('Error downloading deleted document:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Document*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\nFile: ${m.documentMessage.fileName || 'unknown'}\n\n❌ Failed to retrieve document`
-                    });
+                        text: `🚫 *Deleted Document (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                    }, { quoted: quotedMessage });
                 }
             }
 
@@ -851,42 +858,35 @@ function setupMessageHandlers(conn, number, antiDeleteStore) {
                 try {
                     const stream = await downloadContentFromMessage(m.stickerMessage, 'sticker');
                     let buffer = Buffer.from([]);
-
                     for await (const chunk of stream) {
                         buffer = Buffer.concat([buffer, chunk]);
                     }
 
                     await conn.sendMessage(jid, {
                         sticker: buffer
-                    });
+                    }, { quoted: quotedMessage });
                     
                     // Send info text separately
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Sticker*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}`
+                        text: `🚫 *Deleted Sticker*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     });
                 } catch (err) {
                     console.error('Error downloading deleted sticker:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Sticker*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n❌ Failed to retrieve sticker`
-                    });
+                        text: `🚫 *Deleted Sticker (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                    }, { quoted: quotedMessage });
                 }
-            }
-
-            // VIEW ONCE MESSAGE
-            else if (m.viewOnceMessage) {
-                await conn.sendMessage(jid, {
-                    text: `🚫 *Deleted View-Once Message*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n⚠️ View-once messages cannot be retrieved after deletion`
-                });
             }
 
             // UNKNOWN TYPE
             else {
                 await conn.sendMessage(jid, {
-                    text: `🚫 *Deleted Message*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n⚠️ Message type not supported for recovery`
-                });
+                    text: `🚫 *Deleted Message (Unsupported type)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                }, { quoted: quotedMessage });
             }
 
-            antiDeleteStore.delete(deletedId);
+            // Remove from memory after handling
+            messageStore.delete(deletedId);
         }
         
         conn.sendFileUrl = async (jid, url, caption, quoted, options = {}) => {
@@ -1031,7 +1031,7 @@ app.get("/disconnect", async (req, res) => {
             await socket.logout();
             activeSockets.delete(sanitizedNumber);
             socketCreationTime.delete(sanitizedNumber);
-            antiDeleteStores.delete(sanitizedNumber); // Clean up store
+            messageStores.delete(sanitizedNumber); // Clean up message store
             await fsExtra.remove(path.join(SESSION_BASE_PATH, `session_${sanitizedNumber}`));
             await deleteSessionFromGitHub(sanitizedNumber);
             await removeNumberFromStorage(sanitizedNumber);
