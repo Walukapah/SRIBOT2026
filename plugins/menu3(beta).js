@@ -1,52 +1,91 @@
+// /plugins/menu.js
 const { cmd } = require('../command');
 const config = require('../config');
 const moment = require('moment-timezone');
-const os = require('os');
 
-// Global variables from index.js (simulate)
-const activeSockets = new Map();
+// Get current bot number from global context
+function getCurrentConfig() {
+    const currentNumber = global.currentBotNumber;
+    if (currentNumber) {
+        return config.getConfigSync(currentNumber);
+    }
+    return config;
+}
 
 cmd({
-    pattern: "menu3",
-    desc: "Show bot menu with buttons",
+    pattern: "menu",
+    alias: ["help", "commands"],
+    desc: "Show bot menu with interactive buttons",
     category: "main",
+    react: "📜",
     filename: __filename
-}, async (conn, mek, m, { from, sender, pushname, reply, isGroup }) => {
+}, async (conn, mek, m, { from, sender, pushname, reply }) => {
     try {
-        const text = `*🪷 හායි ${pushname}!* 
-
-මම *${config.BOT_NAME}* - Multi-Number WhatsApp Bot එකක්. 
-මගේ මෙහෙයවීම යටතේ *${activeSockets.size}* අංක ක්‍රියාත්මකව පවතී.
-
-▢ *Prefix:* ${config.PREFIX}
-▢ *Mode:* ${config.MODE}
-▢ *Version:* ${config.VERSION}
-
-පහත බටනය භාවිතා කර මගේ සියලුම විධාන දකින්න.`;
-
-        const footer = `© ${config.BOT_NAME} • ${moment().format('YYYY')}`;
-        const imageUrl = config.MENU_IMG_URL || "https://i.imgur.com/r3GZeiX.jpeg";
+        // Get config for current number
+        const currentConfig = getCurrentConfig();
         
-        const buttons = [
+        const date = moment().tz('Asia/Colombo').format('YYYY-MM-DD');
+        const time = moment().tz('Asia/Colombo').format('HH:mm:ss');
+        
+        const caption = `*🪷 හායි ${pushname || 'Friend'}!* 
+
+👋 *Welcome to ${currentConfig.BOT_NAME}*
+
+📅 *Date:* ${date}
+⏰ *Time:* ${time}
+🌐 *Mode:* ${currentConfig.MODE}
+🔧 *Prefix:* ${currentConfig.PREFIX}
+📦 *Version:* ${currentConfig.VERSION}
+
+*Select an option below:*`;
+
+        const imageUrl = currentConfig.MENU_IMG_URL || "https://images.weserv.nl/?url=i.imgur.com/W2CaVZW.jpeg";
+        
+        // New interactive button format
+        const interactiveButtons = [
             {
-                buttonId: `${config.PREFIX}list`,
-                buttonText: { displayText: "📋 All Commands" },
-                type: 1
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({
+                    display_text: '📋 All Commands',
+                    id: `${currentConfig.PREFIX}list`
+                })
             },
             {
-                buttonId: `${config.PREFIX}owner`,
-                buttonText: { displayText: "👑 Owner" },
-                type: 1
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({
+                    display_text: '👑 Owner Info',
+                    id: `${currentConfig.PREFIX}owner`
+                })
             },
             {
-                buttonId: `${config.PREFIX}stats`,
-                buttonText: { displayText: "📊 Stats" },
-                type: 1
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({
+                    display_text: '📊 Bot Status',
+                    id: `${currentConfig.PREFIX}ping`
+                })
+            },
+            {
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({
+                    display_text: '⚙️ Settings',
+                    id: `${currentConfig.PREFIX}settings`
+                })
             }
         ];
 
-        await conn.sendButtonMessage(from, text, footer, buttons, imageUrl, { quoted: mek });
-        
+        // Send using new format
+        await conn.sendMessage(from, {
+            image: { 
+                url: imageUrl 
+            },
+            caption: caption,
+            title: `${currentConfig.BOT_NAME}`,
+            subtitle: 'Multi-Number WhatsApp Bot',
+            footer: `© ${currentConfig.BOT_NAME} • ${moment().format('YYYY')}`,
+            interactiveButtons: interactiveButtons,
+            hasMediaAttachment: true
+        }, { quoted: mek });
+
     } catch (error) {
         console.error('Menu error:', error);
         reply('❌ Error displaying menu. Please try again.');
