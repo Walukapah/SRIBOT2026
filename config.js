@@ -13,7 +13,7 @@ const baseConfig = {
     OWNER_NUMBER: process.env.OWNER_NUMBER || ["94728115797"],
     ALIVE_IMG: process.env.ALIVE_IMG || "https://telegra.ph/file/ad25b2227fa2a1a01b707.jpg",
     ALIVE_MSG: process.env.ALIVE_MSG || "iyoo whats up 💫",
-    MENU_IMG_URL: process.env.MENU_IMG_URL || "https://i.imgur.com/W2CaVZW.jpeg",
+    MENU_IMG_URL: process.env.MENU_IMG_URL || "https://i.ibb.co/YT2TN2vr/Picsart-25-06-07-13-04-26-190.jpg",
     MENU_TYPE: process.env.MENU_TYPE || "big",
     MENU_FONT: process.env.MENU_FONT || "tiny",
     AUTO_READ_STATUS: process.env.AUTO_READ_STATUS || "true",
