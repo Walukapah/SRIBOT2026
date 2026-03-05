@@ -13,7 +13,7 @@ function getCurrentConfig() {
 }
 
 cmd({
-    pattern: "menu",
+    pattern: "menu3",
     alias: ["help", "commands"],
     desc: "Show bot menu with interactive buttons",
     category: "main",
