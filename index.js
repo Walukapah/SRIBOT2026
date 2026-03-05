@@ -705,7 +705,8 @@ function setupMessageHandlers(conn, number, messageStore) {
                     text: mek.message.conversation,
                     jid: mek.key.remoteJid,
                     sender: mek.key.participant || mek.key.remoteJid,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    key: mek.key // Store the full key for reply
                 });
                 
                 // Limit store size to prevent memory issues (keep last 1000 messages)
@@ -721,7 +722,8 @@ function setupMessageHandlers(conn, number, messageStore) {
                     text: mek.message.extendedTextMessage.text,
                     jid: mek.key.remoteJid,
                     sender: mek.key.participant || mek.key.remoteJid,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    key: mek.key // Store the full key for reply
                 });
                 
                 // Limit store size
@@ -745,13 +747,30 @@ function setupMessageHandlers(conn, number, messageStore) {
                     const sentByNumber = msg.sender.split('@')[0];
                     
                     // Don't show if bot deleted it
-                    if (deletedByNumber.includes(botNumber)) return;
+                    if (deletedByNumber.includes(botNumber)) {
+                        messageStore.delete(deletedId);
+                        return;
+                    }
                     
                     const xx = '```';
                     
+                    // Create fake message object for reply (the deleted message)
+                    const quotedMessage = {
+                        key: {
+                            remoteJid: msg.jid,
+                            fromMe: msg.sender.includes(botNumber),
+                            id: deletedId,
+                            participant: msg.sender
+                        },
+                        message: {
+                            conversation: msg.text
+                        }
+                    };
+                    
+                    // Send delete notification as reply to the "deleted" message
                     await conn.sendMessage(msg.jid, {
                         text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_\n\n> 🔓 Message Text: ${xx}${msg.text}${xx}`
-                    });
+                    }, { quoted: quotedMessage });
                     
                     // Remove from memory after sending
                     messageStore.delete(deletedId);
