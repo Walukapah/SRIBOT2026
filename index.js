@@ -70,15 +70,15 @@ if (!fs.existsSync(SESSION_BASE_PATH)) {
 }
 
 // ============================================
-// MESSAGE STORE FOR ANTI DELETE (Per Number)
+// ANTI DELETE STORE (Per Number)
 // ============================================
-const messageStores = new Map();
+const antiDeleteStores = new Map();
 
-function getMessageStore(number) {
-    if (!messageStores.has(number)) {
-        messageStores.set(number, new Map());
+function getAntiDeleteStore(number) {
+    if (!antiDeleteStores.has(number)) {
+        antiDeleteStores.set(number, new Map());
     }
-    return messageStores.get(number);
+    return antiDeleteStores.get(number);
 }
 
 // ============================================
@@ -394,8 +394,8 @@ async function connectToWAMulti(number, res = null) {
         activeSockets.set(sanitizedNumber, conn);
         socketCreationTime.set(sanitizedNumber, Date.now());
 
-        // Get message store for this number
-        const messageStore = getMessageStore(sanitizedNumber);
+        // Get anti-delete store for this number
+        const antiDeleteStore = getAntiDeleteStore(sanitizedNumber);
 
         // GitHub: Save creds to GitHub when updated
         conn.ev.on('creds.update', async () => {
@@ -416,7 +416,7 @@ async function connectToWAMulti(number, res = null) {
 
                 activeSockets.delete(sanitizedNumber);
                 socketCreationTime.delete(sanitizedNumber);
-                messageStores.delete(sanitizedNumber); // Clean up message store
+                antiDeleteStores.delete(sanitizedNumber); // Clean up store
 
                 if (shouldReconnect) {
                     await delay(5000);
@@ -492,7 +492,7 @@ async function connectToWAMulti(number, res = null) {
         });
 
         // Setup message handlers for this connection
-        setupMessageHandlers(conn, sanitizedNumber, messageStore);
+        setupMessageHandlers(conn, sanitizedNumber, antiDeleteStore);
 
         // Request pairing code if not registered
         if (!conn.authState.creds.registered) {
@@ -516,7 +516,7 @@ async function connectToWAMulti(number, res = null) {
         console.error(`Failed to connect number ${sanitizedNumber}:`, error);
         activeSockets.delete(sanitizedNumber);
         socketCreationTime.delete(sanitizedNumber);
-        messageStores.delete(sanitizedNumber);
+        antiDeleteStores.delete(sanitizedNumber);
         if (res && !res.headersSent) {
             res.status(500).send({ error: 'Service Unavailable or Connection Failed.' });
         }
@@ -527,7 +527,7 @@ async function connectToWAMulti(number, res = null) {
 // MESSAGE HANDLERS WITH PER-NUMBER CONFIGS
 // ============================================
 
-function setupMessageHandlers(conn, number, messageStore) {
+function setupMessageHandlers(conn, number, antiDeleteStore) {
     // Set global context for this number so config.js can access it
     global.currentBotNumber = number;
     
@@ -692,90 +692,201 @@ function setupMessageHandlers(conn, number, messageStore) {
             conn.sendMessage(from, { text: teks }, { quoted: mek });
         }
 
-        // ===============================
-        // SIMPLE ANTI DELETE SYSTEM
-        // ===============================
+        // =======================================
+        // ANTI DELETE - SAVE MESSAGES
+        // =======================================
         
-        // Check if anti-delete is enabled in config
-        if (config.ANTI_DELETE === "true") {
+        if (config.ANTI_DELETE === "true" && !mek.key.fromMe) {
+            // Save all message types to store
+            antiDeleteStore.set(mek.key.id, {
+                jid: mek.key.remoteJid,
+                message: mek.message,
+                sender: mek.key.participant || mek.key.remoteJid,
+                timestamp: Date.now()
+            });
             
-            // Save normal text messages to store (only if not from bot itself)
-            if (!mek.key.fromMe && mek.message?.conversation) {
-                messageStore.set(mek.key.id, {
-                    text: mek.message.conversation,
-                    jid: mek.key.remoteJid,
-                    sender: mek.key.participant || mek.key.remoteJid,
-                    timestamp: Date.now(),
-                    key: mek.key // Store the full key for reply
-                });
-                
-                // Limit store size to prevent memory issues (keep last 1000 messages)
-                if (messageStore.size > 1000) {
-                    const firstKey = messageStore.keys().next().value;
-                    messageStore.delete(firstKey);
-                }
+            // Limit store size (keep last 500 messages to save memory for media)
+            if (antiDeleteStore.size > 500) {
+                const firstKey = antiDeleteStore.keys().next().value;
+                antiDeleteStore.delete(firstKey);
             }
+        }
+
+        // =======================================
+        // HANDLE DELETE
+        // =======================================
+
+        if (mek.message?.protocolMessage?.type === 0) { // 0 = REVOKE
+
+            const deletedId = mek.message.protocolMessage.key.id;
+            const msg = antiDeleteStore.get(deletedId);
+
+            if (!msg) return;
+
+            const jid = msg.jid;
+            const m = msg.message;
+            const deletedBy = mek.key.participant || mek.key.remoteJid;
+            const deletedByNumber = deletedBy.split('@')[0];
+            const sentByNumber = msg.sender.split('@')[0];
             
-            // Also save extended text messages (with context/quoted)
-            if (!mek.key.fromMe && mek.message?.extendedTextMessage?.text) {
-                messageStore.set(mek.key.id, {
-                    text: mek.message.extendedTextMessage.text,
-                    jid: mek.key.remoteJid,
-                    sender: mek.key.participant || mek.key.remoteJid,
-                    timestamp: Date.now(),
-                    key: mek.key // Store the full key for reply
-                });
-                
-                // Limit store size
-                if (messageStore.size > 1000) {
-                    const firstKey = messageStore.keys().next().value;
-                    messageStore.delete(firstKey);
-                }
+            // Don't show if bot deleted it
+            if (deletedByNumber.includes(botNumber)) {
+                antiDeleteStore.delete(deletedId);
+                return;
             }
 
-            // Detect revoke/delete message
-            if (mek.message?.protocolMessage?.type === 0) { // 0 = REVOKE in Baileys
-                
-                const deletedId = mek.message.protocolMessage.key.id;
-                const deletedJid = mek.message.protocolMessage.key.remoteJid;
-                const deletedBy = mek.key.participant || mek.key.remoteJid;
+            // TEXT
+            if (m.conversation) {
+                await conn.sendMessage(jid, {
+                    text: `🚫 *Deleted Message*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n${m.conversation}`
+                });
+            }
 
-                const msg = messageStore.get(deletedId);
+            // EXTENDED TEXT (with caption or context)
+            else if (m.extendedTextMessage) {
+                await conn.sendMessage(jid, {
+                    text: `🚫 *Deleted Message*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n${m.extendedTextMessage.text}`
+                });
+            }
 
-                if (msg) {
-                    const deletedByNumber = deletedBy.split('@')[0];
-                    const sentByNumber = msg.sender.split('@')[0];
-                    
-                    // Don't show if bot deleted it
-                    if (deletedByNumber.includes(botNumber)) {
-                        messageStore.delete(deletedId);
-                        return;
+            // IMAGE
+            else if (m.imageMessage) {
+                try {
+                    const stream = await downloadContentFromMessage(m.imageMessage, 'image');
+                    let buffer = Buffer.from([]);
+
+                    for await (const chunk of stream) {
+                        buffer = Buffer.concat([buffer, chunk]);
                     }
-                    
-                    const xx = '```';
-                    
-                    // Create fake message object for reply (the deleted message)
-                    const quotedMessage = {
-                        key: {
-                            remoteJid: msg.jid,
-                            fromMe: msg.sender.includes(botNumber),
-                            id: deletedId,
-                            participant: msg.sender
-                        },
-                        message: {
-                            conversation: msg.text
-                        }
-                    };
-                    
-                    // Send delete notification as reply to the "deleted" message
-                    await conn.sendMessage(msg.jid, {
-                        text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_\n\n> 🔓 Message Text: ${xx}${msg.text}${xx}`
-                    }, { quoted: quotedMessage });
-                    
-                    // Remove from memory after sending
-                    messageStore.delete(deletedId);
+
+                    await conn.sendMessage(jid, {
+                        image: buffer,
+                        caption: `🚫 *Deleted Image*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}${m.imageMessage.caption ? '\n\nCaption: ' + m.imageMessage.caption : ''}`
+                    });
+                } catch (err) {
+                    console.error('Error downloading deleted image:', err);
+                    await conn.sendMessage(jid, {
+                        text: `🚫 *Deleted Image*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n❌ Failed to retrieve image`
+                    });
                 }
             }
+
+            // VIDEO
+            else if (m.videoMessage) {
+                try {
+                    const stream = await downloadContentFromMessage(m.videoMessage, 'video');
+                    let buffer = Buffer.from([]);
+
+                    for await (const chunk of stream) {
+                        buffer = Buffer.concat([buffer, chunk]);
+                    }
+
+                    await conn.sendMessage(jid, {
+                        video: buffer,
+                        caption: `🚫 *Deleted Video*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}${m.videoMessage.caption ? '\n\nCaption: ' + m.videoMessage.caption : ''}`
+                    });
+                } catch (err) {
+                    console.error('Error downloading deleted video:', err);
+                    await conn.sendMessage(jid, {
+                        text: `🚫 *Deleted Video*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n❌ Failed to retrieve video`
+                    });
+                }
+            }
+
+            // AUDIO / VOICE
+            else if (m.audioMessage) {
+                try {
+                    const stream = await downloadContentFromMessage(m.audioMessage, 'audio');
+                    let buffer = Buffer.from([]);
+
+                    for await (const chunk of stream) {
+                        buffer = Buffer.concat([buffer, chunk]);
+                    }
+
+                    await conn.sendMessage(jid, {
+                        audio: buffer,
+                        mimetype: 'audio/mp4',
+                        ptt: m.audioMessage.ptt,
+                        caption: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'}*`
+                    });
+                    
+                    // Send info text separately
+                    await conn.sendMessage(jid, {
+                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'}*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}`
+                    });
+                } catch (err) {
+                    console.error('Error downloading deleted audio:', err);
+                    await conn.sendMessage(jid, {
+                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'}*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n❌ Failed to retrieve audio`
+                    });
+                }
+            }
+
+            // DOCUMENT
+            else if (m.documentMessage) {
+                try {
+                    const stream = await downloadContentFromMessage(m.documentMessage, 'document');
+                    let buffer = Buffer.from([]);
+
+                    for await (const chunk of stream) {
+                        buffer = Buffer.concat([buffer, chunk]);
+                    }
+
+                    await conn.sendMessage(jid, {
+                        document: buffer,
+                        mimetype: m.documentMessage.mimetype,
+                        fileName: m.documentMessage.fileName || "deleted-file",
+                        caption: `🚫 *Deleted Document*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}`
+                    });
+                } catch (err) {
+                    console.error('Error downloading deleted document:', err);
+                    await conn.sendMessage(jid, {
+                        text: `🚫 *Deleted Document*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\nFile: ${m.documentMessage.fileName || 'unknown'}\n\n❌ Failed to retrieve document`
+                    });
+                }
+            }
+
+            // STICKER
+            else if (m.stickerMessage) {
+                try {
+                    const stream = await downloadContentFromMessage(m.stickerMessage, 'sticker');
+                    let buffer = Buffer.from([]);
+
+                    for await (const chunk of stream) {
+                        buffer = Buffer.concat([buffer, chunk]);
+                    }
+
+                    await conn.sendMessage(jid, {
+                        sticker: buffer
+                    });
+                    
+                    // Send info text separately
+                    await conn.sendMessage(jid, {
+                        text: `🚫 *Deleted Sticker*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}`
+                    });
+                } catch (err) {
+                    console.error('Error downloading deleted sticker:', err);
+                    await conn.sendMessage(jid, {
+                        text: `🚫 *Deleted Sticker*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n❌ Failed to retrieve sticker`
+                    });
+                }
+            }
+
+            // VIEW ONCE MESSAGE
+            else if (m.viewOnceMessage) {
+                await conn.sendMessage(jid, {
+                    text: `🚫 *Deleted View-Once Message*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n⚠️ View-once messages cannot be retrieved after deletion`
+                });
+            }
+
+            // UNKNOWN TYPE
+            else {
+                await conn.sendMessage(jid, {
+                    text: `🚫 *Deleted Message*\n\n👤 Deleted by: ${deletedByNumber}\n📩 Sent by: ${sentByNumber}\n\n⚠️ Message type not supported for recovery`
+                });
+            }
+
+            antiDeleteStore.delete(deletedId);
         }
         
         conn.sendFileUrl = async (jid, url, caption, quoted, options = {}) => {
@@ -920,7 +1031,7 @@ app.get("/disconnect", async (req, res) => {
             await socket.logout();
             activeSockets.delete(sanitizedNumber);
             socketCreationTime.delete(sanitizedNumber);
-            messageStores.delete(sanitizedNumber); // Clean up message store
+            antiDeleteStores.delete(sanitizedNumber); // Clean up store
             await fsExtra.remove(path.join(SESSION_BASE_PATH, `session_${sanitizedNumber}`));
             await deleteSessionFromGitHub(sanitizedNumber);
             await removeNumberFromStorage(sanitizedNumber);
