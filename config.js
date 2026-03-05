@@ -42,11 +42,24 @@ function setDefaultNumber(number) {
 
 // Get current number (from context or default)
 function getCurrentNumber() {
-    // Try to get from global context if set by index.js
     if (global.currentBotNumber) {
         return global.currentBotNumber;
     }
     return defaultNumber;
+}
+
+// Load config from local file synchronously (for startup)
+function loadLocalConfigSync(number) {
+    try {
+        const localPath = `./sessions/config_${number}.json`;
+        if (fs.existsSync(localPath)) {
+            const content = fs.readFileSync(localPath, 'utf8');
+            return JSON.parse(content);
+        }
+    } catch (e) {
+        console.error('Error loading local config:', e);
+    }
+    return null;
 }
 
 // Get config for specific number (with GitHub integration)
@@ -56,6 +69,13 @@ async function getConfig(number) {
     // Check if we have cached config
     if (userConfigs.has(sanitizedNumber)) {
         return userConfigs.get(sanitizedNumber);
+    }
+    
+    // Try to load from local file first (faster)
+    const localConfig = loadLocalConfigSync(sanitizedNumber);
+    if (localConfig) {
+        userConfigs.set(sanitizedNumber, localConfig);
+        return localConfig;
     }
     
     // Try to load from GitHub
@@ -74,6 +94,16 @@ async function getConfig(number) {
         const content = Buffer.from(data.content, 'base64').toString('utf8');
         const userConfig = { ...baseConfig, ...JSON.parse(content) };
         userConfigs.set(sanitizedNumber, userConfig);
+        
+        // Save to local file for faster access next time
+        try {
+            const dir = './sessions';
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(`./sessions/config_${sanitizedNumber}.json`, JSON.stringify(userConfig, null, 2));
+        } catch (e) {
+            // Ignore local save errors
+        }
+        
         return userConfig;
     } catch (error) {
         // If not found on GitHub, use base config
@@ -83,7 +113,7 @@ async function getConfig(number) {
     }
 }
 
-// Get config synchronously (for non-async contexts)
+// Get config synchronously (for non-async contexts) - ALWAYS checks local file first
 function getConfigSync(number) {
     const sanitizedNumber = number ? number.replace(/[^0-9]/g, '') : getCurrentNumber();
     
@@ -91,24 +121,29 @@ function getConfigSync(number) {
         return { ...baseConfig };
     }
     
+    // Always check memory cache first
     if (userConfigs.has(sanitizedNumber)) {
         return userConfigs.get(sanitizedNumber);
     }
     
-    // Try local cache file
-    try {
-        const localPath = `./sessions/config_${sanitizedNumber}.json`;
-        if (fs.existsSync(localPath)) {
-            const content = fs.readFileSync(localPath, 'utf8');
-            const userConfig = { ...baseConfig, ...JSON.parse(content) };
-            userConfigs.set(sanitizedNumber, userConfig);
-            return userConfig;
-        }
-    } catch (e) {
-        // Ignore errors
+    // Then check local file (CRITICAL for Koyeb startup)
+    const localConfig = loadLocalConfigSync(sanitizedNumber);
+    if (localConfig) {
+        userConfigs.set(sanitizedNumber, localConfig);
+        return localConfig;
     }
     
-    return { ...baseConfig };
+    // Return base config if nothing found
+    const userConfig = { ...baseConfig };
+    userConfigs.set(sanitizedNumber, userConfig);
+    return userConfig;
+}
+
+// Force reload config from storage (useful after config changes)
+function reloadConfig(number) {
+    const sanitizedNumber = number.replace(/[^0-9]/g, '');
+    userConfigs.delete(sanitizedNumber); // Clear from cache
+    return getConfigSync(sanitizedNumber); // Reload from file
 }
 
 // Update config for specific number (with GitHub integration)
@@ -119,7 +154,7 @@ async function updateConfig(number, newConfig) {
     const currentConfig = await getConfig(sanitizedNumber);
     const updatedConfig = { ...currentConfig, ...newConfig };
     
-    // Update cache
+    // Update cache immediately
     userConfigs.set(sanitizedNumber, updatedConfig);
     
     // Save locally first
@@ -128,8 +163,9 @@ async function updateConfig(number, newConfig) {
         const dir = './sessions';
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2));
+        console.log(`[CONFIG] Config saved locally for ${sanitizedNumber}`);
     } catch (localError) {
-        console.error('❌ Failed to save config locally:', localError);
+        console.error('[CONFIG] Failed to save config locally:', localError);
     }
     
     // Save to GitHub
@@ -164,10 +200,10 @@ async function updateConfig(number, newConfig) {
             sha: sha || undefined,
         });
         
-        console.log(`✅ Config updated on GitHub for ${sanitizedNumber}`);
+        console.log(`[CONFIG] Config updated on GitHub for ${sanitizedNumber}`);
         return true;
     } catch (error) {
-        console.error('❌ Failed to save config to GitHub:', error);
+        console.error('[CONFIG] Failed to save config to GitHub:', error);
         return true; // Still return true since we saved locally
     }
 }
@@ -215,6 +251,31 @@ async function resetConfig(number) {
     }
 }
 
+// Initialize config for a number at startup (call this before using config)
+async function initializeConfig(number) {
+    const sanitizedNumber = number.replace(/[^0-9]/g, '');
+    
+    // First try to load from local file
+    const localConfig = loadLocalConfigSync(sanitizedNumber);
+    if (localConfig) {
+        userConfigs.set(sanitizedNumber, localConfig);
+        console.log(`[CONFIG] Config loaded from local file for ${sanitizedNumber}`);
+        return localConfig;
+    }
+    
+    // If no local file, try to fetch from GitHub
+    try {
+        const config = await getConfig(sanitizedNumber);
+        console.log(`[CONFIG] Config loaded from GitHub for ${sanitizedNumber}`);
+        return config;
+    } catch (error) {
+        console.log(`[CONFIG] Using base config for ${sanitizedNumber}`);
+        const baseCfg = { ...baseConfig };
+        userConfigs.set(sanitizedNumber, baseCfg);
+        return baseCfg;
+    }
+}
+
 // Create a dynamic config proxy that always gets fresh values
 function createDynamicConfig(number) {
     const configObj = {};
@@ -247,6 +308,8 @@ dynamicConfig.updateConfig = updateConfig;
 dynamicConfig.resetConfig = resetConfig;
 dynamicConfig.setDefaultNumber = setDefaultNumber;
 dynamicConfig.getConfigSync = getConfigSync;
+dynamicConfig.initializeConfig = initializeConfig;
+dynamicConfig.reloadConfig = reloadConfig;
 dynamicConfig.baseConfig = baseConfig;
 
 module.exports = dynamicConfig;
