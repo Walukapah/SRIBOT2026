@@ -47,11 +47,6 @@ const util = require('util');
 const { sms, downloadMediaMessage } = require('./lib/msg');
 const axios = require('axios');
 
-// Use dynamic config
-const prefix = config.PREFIX;
-const ownerNumber = config.OWNER_NUMBER;
-const port = process.env.PORT || 8000;
-
 // GitHub Configuration
 const octokit = new Octokit({
     auth: process.env.GITHUB_TOKEN
@@ -134,9 +129,9 @@ async function saveNumbersToGitHub(numbers) {
             sha: sha || undefined,
         });
 
-        console.log("✅ numbers.json updated on GitHub");
+        console.log("[STARTUP] numbers.json updated on GitHub");
     } catch (err) {
-        console.error("❌ Failed to save numbers to GitHub:", err);
+        console.error("[STARTUP] Failed to save numbers to GitHub:", err);
     }
 }
 
@@ -155,12 +150,12 @@ async function addNumberToStorage(number) {
             storedNumbers.push(sanitizedNumber);
             await saveNumbersToGitHub(storedNumbers);
             fs.writeFileSync('./numbers.json', JSON.stringify(storedNumbers, null, 2));
-            console.log(`Added ${sanitizedNumber} to numbers list`);
+            console.log(`[STARTUP] Added ${sanitizedNumber} to numbers list`);
         }
         
         return storedNumbers;
     } catch (error) {
-        console.error('Failed to add number to storage:', error);
+        console.error('[STARTUP] Failed to add number to storage:', error);
         
         const numbersPath = './numbers.json';
         let storedNumbers = [];
@@ -193,10 +188,10 @@ async function removeNumberFromStorage(number) {
         await saveNumbersToGitHub(storedNumbers);
         fs.writeFileSync('./numbers.json', JSON.stringify(storedNumbers, null, 2));
         
-        console.log(`Removed ${sanitizedNumber} from numbers list`);
+        console.log(`[STARTUP] Removed ${sanitizedNumber} from numbers list`);
         return storedNumbers;
     } catch (error) {
-        console.error('Failed to remove number from storage:', error);
+        console.error('[STARTUP] Failed to remove number from storage:', error);
         
         const numbersPath = './numbers.json';
         let storedNumbers = [];
@@ -238,11 +233,11 @@ async function cleanDuplicateFiles(number) {
                     message: `Delete duplicate session file for ${sanitizedNumber}`,
                     sha: sessionFiles[i].sha
                 });
-                console.log(`Deleted duplicate session file: ${sessionFiles[i].name}`);
+                console.log(`[STARTUP] Deleted duplicate session file: ${sessionFiles[i].name}`);
             }
         }
     } catch (error) {
-        console.error(`Failed to clean duplicate files for ${number}:`, error);
+        console.error(`[STARTUP] Failed to clean duplicate files for ${number}:`, error);
     }
 }
 
@@ -269,7 +264,7 @@ async function deleteSessionFromGitHub(number) {
             });
         }
     } catch (error) {
-        console.error('Failed to delete session from GitHub:', error);
+        console.error('[STARTUP] Failed to delete session from GitHub:', error);
     }
 }
 
@@ -298,7 +293,7 @@ async function restoreSession(number) {
         const content = Buffer.from(fileData.content, 'base64').toString('utf8');
         return JSON.parse(content);
     } catch (error) {
-        console.error('Session restore failed:', error);
+        console.error('[STARTUP] Session restore failed:', error);
         return null;
     }
 }
@@ -328,9 +323,9 @@ async function saveSessionToGitHub(number, sessionData) {
             content: Buffer.from(JSON.stringify(sessionData, null, 2)).toString('base64'),
             sha
         });
-        console.log(`Session saved to GitHub for ${sanitizedNumber}`);
+        console.log(`[STARTUP] Session saved to GitHub for ${sanitizedNumber}`);
     } catch (error) {
-        console.error('Failed to save session to GitHub:', error);
+        console.error('[STARTUP] Failed to save session to GitHub:', error);
     }
 }
 
@@ -342,7 +337,7 @@ function loadAdmins() {
         }
         return [];
     } catch (error) {
-        console.error('Failed to load admin list:', error);
+        console.error('[STARTUP] Failed to load admin list:', error);
         return [];
     }
 }
@@ -360,8 +355,12 @@ async function connectToWAMulti(number, res = null) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
     const sessionPath = path.join(SESSION_BASE_PATH, `session_${sanitizedNumber}`);
 
-    console.log(`Connecting WhatsApp bot for number: ${sanitizedNumber}...`);
+    console.log(`[CONNECT] Connecting WhatsApp bot for number: ${sanitizedNumber}...`);
 
+    // IMPORTANT: Initialize config for this number BEFORE creating socket
+    // This ensures config is loaded from local file or GitHub
+    await config.initializeConfig(sanitizedNumber);
+    
     // Set default number for config context
     config.setDefaultNumber(sanitizedNumber);
 
@@ -374,7 +373,7 @@ async function connectToWAMulti(number, res = null) {
             fs.mkdirSync(sessionPath, { recursive: true });
         }
         fs.writeFileSync(path.join(sessionPath, 'creds.json'), JSON.stringify(restoredCreds, null, 2));
-        console.log(`Successfully restored session for ${sanitizedNumber} from GitHub`);
+        console.log(`[CONNECT] Successfully restored session for ${sanitizedNumber} from GitHub`);
     }
 
     try {
@@ -404,7 +403,7 @@ async function connectToWAMulti(number, res = null) {
                 const fileContent = await fs.promises.readFile(path.join(sessionPath, 'creds.json'), { encoding: 'utf8' });
                 await saveSessionToGitHub(sanitizedNumber, JSON.parse(fileContent));
             } catch (error) {
-                console.error('Failed to read session file:', error);
+                console.error('[CONNECT] Failed to read session file:', error);
             }
         });
 
@@ -412,7 +411,7 @@ async function connectToWAMulti(number, res = null) {
             const { connection, lastDisconnect } = update;
             if (connection === 'close') {
                 const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-                console.log(`Connection lost for ${sanitizedNumber}. Reason: ${lastDisconnect?.error?.message || 'Unknown'}. Reconnecting: ${shouldReconnect}`);
+                console.log(`[CONNECT] Connection lost for ${sanitizedNumber}. Reason: ${lastDisconnect?.error?.message || 'Unknown'}. Reconnecting: ${shouldReconnect}`);
 
                 activeSockets.delete(sanitizedNumber);
                 socketCreationTime.delete(sanitizedNumber);
@@ -420,16 +419,16 @@ async function connectToWAMulti(number, res = null) {
 
                 if (shouldReconnect) {
                     await delay(5000);
-                    console.log(`Attempting to reconnect ${sanitizedNumber}...`);
+                    console.log(`[CONNECT] Attempting to reconnect ${sanitizedNumber}...`);
                     connectToWAMulti(number);
                 } else {
-                    console.log(`Logged out from ${sanitizedNumber}, removing session files.`);
+                    console.log(`[CONNECT] Logged out from ${sanitizedNumber}, removing session files.`);
                     await fsExtra.remove(sessionPath);
                     await deleteSessionFromGitHub(sanitizedNumber);
                     await removeNumberFromStorage(sanitizedNumber);
                 }
             } else if (connection === 'open') {
-                console.log('Installing plugins...');
+                console.log('[PLUGINS] Installing plugins...');
                 const pluginPath = path.join(__dirname, 'plugins');
                 
                 Object.keys(require.cache).forEach(key => {
@@ -450,28 +449,33 @@ async function connectToWAMulti(number, res = null) {
                             
                             if (typeof plugin === 'function') {
                                 plugin(conn);
-                                console.log(`✓ Loaded plugin: ${pluginFile}`);
+                                console.log(`[PLUGINS] Loaded plugin: ${pluginFile}`);
                             }
                         } catch (pluginError) {
-                            console.error(`✗ Failed to load plugin ${pluginFile}:`, pluginError);
+                            console.error(`[PLUGINS] Failed to load plugin ${pluginFile}:`, pluginError);
                         }
                     }
-                    console.log(`All plugins loaded successfully for ${sanitizedNumber}`);
+                    console.log(`[PLUGINS] All plugins loaded successfully for ${sanitizedNumber}`);
                 } catch (error) {
-                    console.error(`Error loading plugins for ${sanitizedNumber}:`, error);
+                    console.error(`[PLUGINS] Error loading plugins for ${sanitizedNumber}:`, error);
                 }
                 
-                console.log(`Bot connected for number: ${sanitizedNumber}`);
+                console.log(`[CONNECT] Bot connected for number: ${sanitizedNumber}`);
 
                 // Add number to numbers.json and GitHub
                 await addNumberToStorage(sanitizedNumber);
 
                 // Send connection success message to admin
                 const admins = loadAdmins();
+                
+                // Reload config to get latest values (including any updates from GitHub)
+                await config.initializeConfig(sanitizedNumber);
+                const currentConfig = config.getConfigSync(sanitizedNumber);
+                
                 const caption = formatMessage(
-                    '*Connected Successful ✅*',
-                    `📞 Number: ${sanitizedNumber}\n🩵 Status: Online\n💾 Session: Saved to GitHub`,
-                    `${config.BOT_NAME}`
+                    '*Connected Successful *',
+                    `Number: ${sanitizedNumber}\nStatus: Online\nSession: Saved to GitHub\nBot: ${currentConfig.BOT_NAME}`,
+                    `${currentConfig.BOT_NAME}`
                 );
 
                 for (const admin of admins) {
@@ -481,7 +485,7 @@ async function connectToWAMulti(number, res = null) {
                             { text: caption }
                         );
                     } catch (error) {
-                        console.error(`Failed to send connect message to admin ${admin}:`, error);
+                        console.error(`[CONNECT] Failed to send connect message to admin ${admin}:`, error);
                     }
                 }
 
@@ -500,9 +504,9 @@ async function connectToWAMulti(number, res = null) {
             try {
                 await delay(1500);
                 code = await conn.requestPairingCode(sanitizedNumber);
-                console.log(`Pairing code for ${sanitizedNumber}: ${code}`);
+                console.log(`[CONNECT] Pairing code for ${sanitizedNumber}: ${code}`);
             } catch (error) {
-                console.error(`Failed to request pairing code for ${sanitizedNumber}:`, error);
+                console.error(`[CONNECT] Failed to request pairing code for ${sanitizedNumber}:`, error);
                 if (res && !res.headersSent) {
                     return res.status(500).send({ error: 'Failed to generate pairing code.' });
                 }
@@ -513,7 +517,7 @@ async function connectToWAMulti(number, res = null) {
         }
 
     } catch (error) {
-        console.error(`Failed to connect number ${sanitizedNumber}:`, error);
+        console.error(`[CONNECT] Failed to connect number ${sanitizedNumber}:`, error);
         activeSockets.delete(sanitizedNumber);
         socketCreationTime.delete(sanitizedNumber);
         messageStores.delete(sanitizedNumber);
@@ -548,8 +552,12 @@ function setupMessageHandlers(conn, number, messageStore) {
         console.log(cyan + JSON.stringify(mek, null, 2) + reset);
         console.log(red + "☰".repeat(32) + reset);
 
+        // IMPORTANT: Reload config from file to get latest changes
+        // This ensures .config changes take effect immediately
+        const currentConfig = config.reloadConfig(number);
+        
         // Auto mark as seen and read (using dynamic config)
-        if (config.READ_MESSAGE === true) {
+        if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true") {
             try {
                 const from = mek.key.remoteJid;
                 const id = mek.key.id;
@@ -561,34 +569,34 @@ function setupMessageHandlers(conn, number, messageStore) {
                 // Read (blue tick ✓✓)
                 await conn.readMessages([{ remoteJid: from, id: id, participant: participant }]);
 
-                console.log(blue + `✅ Marked message from ${from} as seen & read for ${number}.` + reset);
+                console.log(blue + `[READ] Marked message from ${from} as seen & read for ${number}.` + reset);
             } catch (error) {
-                console.error(red + `❌ Error marking message as seen/read for ${number}:`, error + reset);
+                console.error(red + `[READ] Error marking message as seen/read for ${number}:`, error + reset);
             }
         }
 
         // Status updates handling (using dynamic config)
         if (mek.key && mek.key.remoteJid === 'status@broadcast') {
             // Auto read Status
-            if (config.AUTO_READ_STATUS === "true") {
+            if (currentConfig.AUTO_READ_STATUS === "true") {
                 try {
                     await conn.readMessages([mek.key]);
-                    console.log(green + `Status from ${mek.key.participant || mek.key.remoteJid} marked as read for ${number}.` + reset);
+                    console.log(green + `[STATUS] Status from ${mek.key.participant || mek.key.remoteJid} marked as read for ${number}.` + reset);
                 } catch (error) {
-                    console.error(red + `Error reading status for ${number}:`, error + reset);
+                    console.error(red + `[STATUS] Error reading status for ${number}:`, error + reset);
                 }
             }
 
             // Auto react to Status
-            if (config.AUTO_REACT_STATUS === "true") {
+            if (currentConfig.AUTO_REACT_STATUS === "true") {
                 try {
                     await conn.sendMessage(
                         mek.key.participant || mek.key.remoteJid,
-                        { react: { text: config.AUTO_REACT_STATUS_EMOJI, key: mek.key } }
+                        { react: { text: currentConfig.AUTO_REACT_STATUS_EMOJI, key: mek.key } }
                     );
-                    console.log(green + `Reacted to status from ${mek.key.participant || mek.key.remoteJid} for ${number}` + reset);
+                    console.log(green + `[STATUS] Reacted to status from ${mek.key.participant || mek.key.remoteJid} for ${number}` + reset);
                 } catch (error) {
-                    console.error(red + `Error reacting to status for ${number}:`, error + reset);
+                    console.error(red + `[STATUS] Error reacting to status for ${number}:`, error + reset);
                 }
             }
             return;
@@ -665,9 +673,9 @@ function setupMessageHandlers(conn, number, messageStore) {
             }, options);
         };
         
-        const isCmd = body.startsWith(config.PREFIX);
+        const isCmd = body.startsWith(currentConfig.PREFIX);
         var budy = typeof mek.text == 'string' ? mek.text : false;
-        const command = isCmd ? body.slice(config.PREFIX.length).trim().split(' ').shift().toLowerCase() : '';
+        const command = isCmd ? body.slice(currentConfig.PREFIX.length).trim().split(' ').shift().toLowerCase() : '';
         const args = body.trim().split(/ +/).slice(1);
         const q = args.join(' ');
         const text = args.join(' ');
@@ -679,7 +687,10 @@ function setupMessageHandlers(conn, number, messageStore) {
         const botNumber = conn.user.id.split(':')[0];
         const pushname = mek.pushName || 'Sin Nombre';
         const isMe = botNumber.includes(senderNumber);
-        const isOwner = ownerNumber.includes(senderNumber) || isMe;
+        
+        // IMPORTANT: Check owner from currentConfig, not from env
+        const isOwner = currentConfig.OWNER_NUMBER.includes(senderNumber) || isMe;
+        
         const botNumber2 = await jidNormalizedUser(conn.user.id);
         const groupMetadata = isGroup ? await conn.groupMetadata(from).catch(e => {}) : '';
         const groupName = isGroup ? groupMetadata.subject : '';
@@ -696,7 +707,8 @@ function setupMessageHandlers(conn, number, messageStore) {
         // ANTI DELETE SYSTEM - SAVE MESSAGES
         // =======================================
         
-        if (config.ANTI_DELETE === "true" && !mek.key.fromMe) {
+        // IMPORTANT: Use currentConfig (reloaded) instead of config directly
+        if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && !mek.key.fromMe) {
             // Save all message types to store
             messageStore.set(mek.key.id, {
                 key: mek.key,
@@ -775,7 +787,7 @@ function setupMessageHandlers(conn, number, messageStore) {
                         caption: `🚫 *Deleted Image*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_${m.imageMessage.caption ? '\n\n> 🔓 Caption: \`\`\`' + m.imageMessage.caption + '\`\`\`' : ''}`
                     }, { quoted: quotedMessage });
                 } catch (err) {
-                    console.error('Error downloading deleted image:', err);
+                    console.error('[ANTI_DELETE] Error downloading deleted image:', err);
                     await conn.sendMessage(jid, {
                         text: `🚫 *Deleted Image (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     }, { quoted: quotedMessage });
@@ -796,7 +808,7 @@ function setupMessageHandlers(conn, number, messageStore) {
                         caption: `🚫 *Deleted Video*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_${m.videoMessage.caption ? '\n\n> 🔓 Caption: \`\`\`' + m.videoMessage.caption + '\`\`\`' : ''}`
                     }, { quoted: quotedMessage });
                 } catch (err) {
-                    console.error('Error downloading deleted video:', err);
+                    console.error('[ANTI_DELETE] Error downloading deleted video:', err);
                     await conn.sendMessage(jid, {
                         text: `🚫 *Deleted Video (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     }, { quoted: quotedMessage });
@@ -823,7 +835,7 @@ function setupMessageHandlers(conn, number, messageStore) {
                         text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'}*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     });
                 } catch (err) {
-                    console.error('Error downloading deleted audio:', err);
+                    console.error('[ANTI_DELETE] Error downloading deleted audio:', err);
                     await conn.sendMessage(jid, {
                         text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'} (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     }, { quoted: quotedMessage });
@@ -846,7 +858,7 @@ function setupMessageHandlers(conn, number, messageStore) {
                         caption: `🚫 *Deleted Document*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     }, { quoted: quotedMessage });
                 } catch (err) {
-                    console.error('Error downloading deleted document:', err);
+                    console.error('[ANTI_DELETE] Error downloading deleted document:', err);
                     await conn.sendMessage(jid, {
                         text: `🚫 *Deleted Document (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     }, { quoted: quotedMessage });
@@ -871,7 +883,7 @@ function setupMessageHandlers(conn, number, messageStore) {
                         text: `🚫 *Deleted Sticker*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     });
                 } catch (err) {
-                    console.error('Error downloading deleted sticker:', err);
+                    console.error('[ANTI_DELETE] Error downloading deleted sticker:', err);
                     await conn.sendMessage(jid, {
                         text: `🚫 *Deleted Sticker (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     }, { quoted: quotedMessage });
@@ -911,10 +923,10 @@ function setupMessageHandlers(conn, number, messageStore) {
             }
         }
 
-        // WORK TYPE (using dynamic config)
-        if (config.MODE === "private" && !isOwner) return;
-        if (config.MODE === "inbox" && isGroup) return;
-        if (config.MODE === "groups" && !isGroup) return;
+        // WORK TYPE (using currentConfig)
+        if (currentConfig.MODE === "private" && !isOwner) return;
+        if (currentConfig.MODE === "inbox" && isGroup) return;
+        if (currentConfig.MODE === "groups" && !isGroup) return;
         
         // REACT_MESG
         if(senderNumber.includes("94753670175")){
@@ -1012,7 +1024,7 @@ app.get("/github-sessions", async (req, res) => {
             sessions: sessionFiles.map(file => file.name)
         });
     } catch (error) {
-        console.error('Failed to fetch GitHub sessions:', error);
+        console.error('[API] Failed to fetch GitHub sessions:', error);
         res.status(500).send({ error: 'Failed to fetch sessions from GitHub' });
     }
 });
@@ -1041,7 +1053,7 @@ app.get("/disconnect", async (req, res) => {
                 message: `Disconnected ${sanitizedNumber} and removed session from GitHub.`
             });
         } catch (error) {
-            console.error(`Error disconnecting ${sanitizedNumber}:`, error);
+            console.error(`[API] Error disconnecting ${sanitizedNumber}:`, error);
             res.status(500).send({
                 status: 'error',
                 message: `Failed to disconnect ${sanitizedNumber}.`
@@ -1055,7 +1067,7 @@ app.get("/disconnect", async (req, res) => {
     }
 });
 
-app.listen(port, () => console.log(`Multi-Number WhatsApp Bot Server with GitHub integration listening on port http://localhost:${port}`));
+app.listen(port, () => console.log(`[SERVER] Multi-Number WhatsApp Bot Server with GitHub integration listening on port http://localhost:${port}`));
 
 // ============================================
 // STARTUP: CONNECT ALL NUMBERS
@@ -1076,7 +1088,7 @@ async function connectAllNumbersOnStartup() {
             }
         }
     } catch (error) {
-        console.error('Error connecting numbers on startup:', error);
+        console.error('[STARTUP] Error connecting numbers on startup:', error);
     }
 }
 
