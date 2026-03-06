@@ -555,6 +555,54 @@ function setupMessageHandlers(conn, number, messageStore) {
         console.log(cyan + JSON.stringify(mek, null, 2) + reset);
         console.log(red + "☰".repeat(32) + reset);
 
+        // =======================================
+        // HANDLE BUTTON / INTERACTIVE RESPONSES
+        // =======================================
+
+        let buttonResponseId = '';
+        let isButtonResponse = false;
+
+        // Handle native flow (interactive) button responses
+        if (mek.message?.interactiveResponseMessage) {
+            const response = mek.message.interactiveResponseMessage;
+            isButtonResponse = true;
+            
+            // Try to get button ID from native flow response
+            if (response.nativeFlowResponseMessage?.paramsJson) {
+                try {
+                    const params = JSON.parse(response.nativeFlowResponseMessage.paramsJson);
+                    buttonResponseId = params.id || '';
+                } catch (e) {
+                    buttonResponseId = response.body?.text || '';
+                }
+            } else {
+                buttonResponseId = response.body?.text || '';
+            }
+            
+            console.log(`[BUTTON] User clicked native flow button: ${buttonResponseId}`);
+        }
+
+        // Handle list response (single select)
+        if (mek.message?.listResponseMessage) {
+            isButtonResponse = true;
+            buttonResponseId = mek.message.listResponseMessage.singleSelectReply?.selectedRowId || '';
+            console.log(`[LIST] User selected list item: ${buttonResponseId}`);
+        }
+
+        // Handle template button reply
+        if (mek.message?.templateButtonReplyMessage) {
+            isButtonResponse = true;
+            buttonResponseId = mek.message.templateButtonReplyMessage.selectedId || '';
+            console.log(`[TEMPLATE] User clicked template button: ${buttonResponseId}`);
+        }
+
+        // Handle buttons response message (legacy)
+        if (mek.message?.buttonsResponseMessage) {
+            isButtonResponse = true;
+            buttonResponseId = mek.message.buttonsResponseMessage.selectedButtonId || '';
+            console.log(`[LEGACY] User clicked legacy button: ${buttonResponseId}`);
+        }
+
         // IMPORTANT: Reload config from file to get latest changes
         // This ensures .config changes take effect immediately
         const currentConfig = config.reloadConfig(number);
@@ -611,7 +659,11 @@ function setupMessageHandlers(conn, number, messageStore) {
         const from = mek.key.remoteJid;
         const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] : [];
 
-        const body = (type === 'conversation') 
+        // =======================================
+        // EXTRACT BODY TEXT
+        // =======================================
+
+        let body = (type === 'conversation') 
             ? mek.message.conversation 
             : (type === 'extendedTextMessage') 
                 ? mek.message.extendedTextMessage.text 
@@ -624,27 +676,41 @@ function setupMessageHandlers(conn, number, messageStore) {
                         : (type === 'buttonsResponseMessage')
                             ? mek.message.buttonsResponseMessage.selectedButtonId
                         : (type === 'listResponseMessage')
-                            ? mek.message.listResponseMessage.title
+                            ? mek.message.listResponseMessage.singleSelectReply?.selectedRowId || mek.message.listResponseMessage.title
                         : (type === 'templateButtonReplyMessage')
                             ? mek.message.templateButtonReplyMessage.selectedId || 
                             mek.message.templateButtonReplyMessage.selectedDisplayText
                         : (type === 'interactiveResponseMessage')
-                            ? mek.message.interactiveResponseMessage?.body?.text ||
-                            (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
-                                ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id 
-                                : mek.message.interactiveResponseMessage?.buttonReply?.buttonId || '')
+                            ? (() => {
+                                try {
+                                    const params = JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage?.paramsJson || '{}');
+                                    return params.id || mek.message.interactiveResponseMessage.body?.text || '';
+                                } catch (e) {
+                                    return mek.message.interactiveResponseMessage.body?.text || '';
+                                }
+                            })()
                         : (type === 'messageContextInfo')
                             ? mek.message.buttonsResponseMessage?.selectedButtonId ||
                             mek.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
-                            mek.message.interactiveResponseMessage?.body?.text ||
-                            (mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson 
-                                ? JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).id
-                                : '')
+                            (() => {
+                                try {
+                                    const params = JSON.parse(mek.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson || '{}');
+                                    return params.id || '';
+                                } catch (e) {
+                                    return '';
+                                }
+                            })()
                         : (type === 'senderKeyDistributionMessage')
                             ? mek.message.conversation || 
                             mek.message.imageMessage?.caption ||
                             ''
                         : '';
+
+        // If button response was detected, use that as body
+        if (isButtonResponse && buttonResponseId) {
+            body = buttonResponseId;
+            console.log(`[HANDLER] Using button response as body: ${body}`);
+        }
 
         // Button message handler
         const { generateButtonMessage } = require('./lib/functions');
@@ -926,107 +992,6 @@ function setupMessageHandlers(conn, number, messageStore) {
             }
         }
 
-        // ============================================
-        // HANDLE BUTTON RESPONSES (INTERACTIVE MESSAGES)
-        // ============================================
-        
-        // Check for interactive message responses
-        let selectedId = '';
-        let selectedText = '';
-        
-        // Handle native flow response (new button format)
-        if (mek.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson) {
-            try {
-                const params = JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson);
-                selectedId = params.id || '';
-                console.log(`[BUTTON] Native flow response: ${selectedId}`);
-            } catch (e) {
-                console.log('[BUTTON] Error parsing paramsJson:', e);
-            }
-        }
-        // Handle body text from interactive response
-        else if (mek.message?.interactiveResponseMessage?.body?.text) {
-            selectedText = mek.message.interactiveResponseMessage.body.text;
-            console.log(`[BUTTON] Interactive body text: ${selectedText}`);
-        }
-        // Handle legacy buttons response
-        else if (mek.message?.buttonsResponseMessage?.selectedButtonId) {
-            selectedId = mek.message.buttonsResponseMessage.selectedButtonId;
-            console.log(`[BUTTON] Legacy button: ${selectedId}`);
-        }
-        // Handle list response
-        else if (mek.message?.listResponseMessage?.singleSelectReply?.selectedRowId) {
-            selectedId = mek.message.listResponseMessage.singleSelectReply.selectedRowId;
-            console.log(`[BUTTON] List selection: ${selectedId}`);
-        }
-        // Handle template button
-        else if (mek.message?.templateButtonReplyMessage?.selectedId) {
-            selectedId = mek.message.templateButtonReplyMessage.selectedId;
-            console.log(`[BUTTON] Template button: ${selectedId}`);
-        }
-
-        // Process button click as command if it starts with prefix
-        if (selectedId && selectedId.startsWith(currentConfig.PREFIX)) {
-            console.log(`[BUTTON] Processing button command: ${selectedId}`);
-            
-            // Remove prefix and parse command
-            const commandText = selectedId.slice(currentConfig.PREFIX.length).trim();
-            const commandName = commandText.split(' ')[0].toLowerCase();
-            const commandArgs = commandText.split(' ').slice(1);
-            const commandQ = commandArgs.join(' ');
-            
-            // Find the command
-            const events = require('./command');
-            const foundCmd = events.commands.find((cmd) => 
-                cmd.pattern === commandName || 
-                (cmd.alias && cmd.alias.includes(commandName))
-            );
-            
-            if (foundCmd) {
-                try {
-                    // Execute the command
-                    await foundCmd.function(conn, mek, m, {
-                        from, 
-                        quoted, 
-                        body: selectedId, 
-                        isCmd: true, 
-                        command: commandName, 
-                        args: commandArgs, 
-                        q: commandQ, 
-                        isGroup, 
-                        sender, 
-                        senderNumber, 
-                        botNumber2, 
-                        botNumber, 
-                        pushname, 
-                        isMe, 
-                        isOwner, 
-                        groupMetadata, 
-                        groupName, 
-                        participants, 
-                        groupAdmins, 
-                        isBotAdmins, 
-                        isAdmins, 
-                        reply
-                    });
-                    return; // Stop further processing
-                } catch (e) {
-                    console.error('[BUTTON CMD ERROR]', e);
-                    reply('❌ Error executing button command');
-                    return;
-                }
-            } else {
-                reply(`❌ Command not found: ${commandName}`);
-                return;
-            }
-        }
-
-        // Handle settings button
-        if (selectedId === '.settings' || selectedId === 'settings') {
-            reply(`⚙️ *Settings Menu*\n\nUse *.config* to change settings\nUse *.status* to view current settings`);
-            return;
-        }
-
         // WORK TYPE (using currentConfig)
         if (currentConfig.MODE === "private" && !isOwner) return;
         if (currentConfig.MODE === "inbox" && isGroup) return;
@@ -1050,6 +1015,11 @@ function setupMessageHandlers(conn, number, messageStore) {
 
         const events = require('./command');
         const cmdName = isCmd ? body.slice(1).trim().split(" ")[0].toLowerCase() : false;
+        
+        // =======================================
+        // COMMAND HANDLER
+        // =======================================
+        
         if (isCmd) {
             const cmd = events.commands.find((cmd) => cmd.pattern === (cmdName)) || events.commands.find((cmd) => cmd.alias && cmd.alias.includes(cmdName));
             if (cmd) {
@@ -1062,6 +1032,48 @@ function setupMessageHandlers(conn, number, messageStore) {
                 }
             }
         }
+        
+        // =======================================
+        // BUTTON RESPONSE HANDLER (Non-command)
+        // =======================================
+        
+        // Handle button responses that don't match commands
+        if (isButtonResponse && buttonResponseId && !isCmd) {
+            const buttonResponses = {
+                'btn_yes': '✅ You clicked YES! Great choice.',
+                'btn_no': '❌ You clicked NO! Maybe next time.',
+                'btn_status': '🤖 Bot is running perfectly on SRI-BOT!',
+                'btn_help': 'ℹ️ Use .menu for full command list or .testbuttons for button demo',
+                'menu_ping': '🚀 Use .ping command to check bot response speed!',
+                'menu_owner': '👤 Use .owner to contact the bot owner.',
+                'menu_about': 'ℹ️ SRI-BOT is a multi-number WhatsApp bot with GitHub integration.',
+                'cmd_ping': '🚀 Use .ping command to check bot response speed!',
+                'cmd_owner': '👤 Use .owner to contact the bot owner.',
+                'cmd_status': '📊 Bot Status:\n• Uptime: ' + runtime(process.uptime()) + '\n• Version: ' + currentConfig.VERSION,
+                'cmd_invite': '🔗 Use .invite to get group invite link.',
+                'cmd_promote': '👮 Use .promote @user to make someone admin.',
+                'cmd_remove': '🚫 Use .kick @user to remove a member.',
+                'cmd_joke': '😂 Joke feature coming soon!',
+                'cmd_sticker': '🖼️ Use .sticker to create stickers from images.',
+                'cmd_ytmusic': '🎵 Use .ytmp3 or .play to download music.',
+                'cmd_all': '📜 Full command list:\n.ping - Check speed\n.owner - Contact owner\n.menu - Show menu\n.testbuttons - Button demo',
+                'img_like': '❤️ Thanks for liking! We appreciate your support.',
+                'img_share': '🔁 Sharing is caring! Spread the word about SRI-BOT.'
+            };
+            
+            const responseText = buttonResponses[buttonResponseId];
+            if (responseText) {
+                await reply(responseText);
+            } else if (buttonResponseId.startsWith('cmd_') || buttonResponseId.startsWith('btn_') || buttonResponseId.startsWith('menu_') || buttonResponseId.startsWith('img_')) {
+                // Unknown button ID but matches pattern
+                await reply(`📌 You selected: *${buttonResponseId}*\n\nThis feature is being developed!`);
+            }
+        }
+        
+        // =======================================
+        // EVENT HANDLERS (on: body, text, etc.)
+        // =======================================
+        
         events.commands.map(async(command) => {
             if (body && command.on === "body") {
                 command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
