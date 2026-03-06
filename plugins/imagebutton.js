@@ -15,7 +15,7 @@ cmd({
 }, async (conn, mek, m, { from, reply, pushname }) => {
     try {
         // Example image URL - you can use any image
-        const imageUrl = config.MENU_IMG_URL || "https://i.ibb.co/YT2TN2vr/Picsart-25-06-07-13-04-26-190.jpg";
+        const imageUrl = config.ALIVE_IMG || "https://telegra.ph/file/ad25b2227fa2a1a01b707.jpg";
         
         const btn = new Button();
         
@@ -109,7 +109,7 @@ cmd({
     filename: __filename
 }, async (conn, mek, m, { from, reply }) => {
     try {
-        const imageUrl = "https://i.ibb.co/YT2TN2vr/Picsart-25-06-07-13-04-26-190.jpg";
+        const imageUrl = "https://telegra.ph/file/ad25b2227fa2a1a01b707.jpg";
         
         const buttons = [
             { type: 'reply', text: '✅ Yes', id: 'quick_yes' },
@@ -148,7 +148,7 @@ cmd({
         reply("⏳ Downloading image...");
         
         // Download image to buffer
-        const imageUrl = config.MENU_IMG_URL || "https://i.ibb.co/YT2TN2vr/Picsart-25-06-07-13-04-26-190.jpg";
+        const imageUrl = config.ALIVE_IMG || "https://telegra.ph/file/ad25b2227fa2a1a01b707.jpg";
         const buffer = await getBuffer(imageUrl);
         
         const buttons = [
@@ -197,7 +197,7 @@ cmd({
             console.log('[LOCALIMG] Using local file:', localPath);
         } else {
             // Fallback to URL
-            imageSource = config.MENU_IMG_URL || "https://i.ibb.co/YT2TN2vr/Picsart-25-06-07-13-04-26-190.jpg";
+            imageSource = config.ALIVE_IMG || "https://telegra.ph/file/ad25b2227fa2a1a01b707.jpg";
             console.log('[LOCALIMG] Local file not found, using URL');
         }
         
@@ -267,7 +267,7 @@ cmd({
         // Parse custom options
         const options = q.split('|').map(s => s.trim());
         const title = options[0] || "Custom Menu";
-        const imageUrl = options[1] || config.MENU_IMG_URL;
+        const imageUrl = options[1] || config.ALIVE_IMG || "https://telegra.ph/file/ad25b2227fa2a1a01b707.jpg";
         const description = options[2] || "Custom description here";
         
         const btn = new Button();
