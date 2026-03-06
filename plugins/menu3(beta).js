@@ -1,5 +1,5 @@
 const { cmd } = require('../command');
-const { generateInteractiveMessage, createSingleSelectButton, createUrlButton, createCopyButton } = require('../lib/functions');
+const { generateInteractiveMessageText, createSingleSelectButton, createUrlButton, createCopyButton } = require('../lib/functions');
 const config = require('../config');
 
 // Format uptime
@@ -127,16 +127,13 @@ cmd({
 
 🎀 Ξ *Select a Command List:* Ξ`;
 
-        const footerText = `© ${config.BOT_NAME} v${config.VERSION}
-Multi-Number WhatsApp Bot by Walukapah 🇱🇰`;
+        const footerText = `© ${config.BOT_NAME} v${config.VERSION}\nMulti-Number WhatsApp Bot by Walukapah 🇱🇰`;
 
-        // Generate interactive message
-        const interactiveMessage = generateInteractiveMessage(
+        // Generate interactive message WITHOUT image (text only)
+        const interactiveMessage = generateInteractiveMessageText(
             `${config.BOT_NAME} MENU`,
-            "Multi-Number WhatsApp Bot",
             menuText,
             footerText,
-            config.MENU_IMG_URL,
             buttons
         );
 
