@@ -1,272 +1,142 @@
+const { Button, sendSimpleButtons, sendMenu } = require('../lib/button');
 const { cmd } = require('../command');
-const { generateInteractiveMessageText, createSingleSelectButton, createUrlButton, createCopyButton } = require('../lib/functions');
 const config = require('../config');
 
-// Format uptime
-const formatUptime = (seconds) => {
-    const days = Math.floor(seconds / (24 * 60 * 60));
-    seconds = seconds % (24 * 60 * 60);
-    const hours = Math.floor(seconds / (60 * 60));
-    seconds = seconds % (60 * 60);
-    const minutes = Math.floor(seconds / 60);
-    seconds = Math.floor(seconds % 60);
-    
-    let time = '';
-    if (days > 0) time += `${days}d `;
-    if (hours > 0) time += `${hours}h `;
-    if (minutes > 0) time += `${minutes}m `;
-    if (seconds > 0 || time === '') time += `${seconds}s`;
-    return time.trim();
-};
-
-// Get memory usage
-const getMemoryUsage = () => {
-    const used = process.memoryUsage();
-    return `${(used.heapUsed / 1024 / 1024).toFixed(2)}MB`;
-};
-
 cmd({
-    pattern: "menu3",
-    alias: ["help", "list", "commands"],
-    desc: "Show bot menu with interactive buttons",
-    category: "main",
-    react: "📜",
+    pattern: "testbuttons",
+    alias: ["tbtn", "btntest"],
+    desc: "Test interactive button messages",
+    category: "test",
+    react: "🧪",
     filename: __filename
-}, async (conn, mek, m, { from, pushname, reply }) => {
+}, async (conn, mek, m, { from, reply, sender }) => {
     try {
-        const uptime = formatUptime(process.uptime());
-        const ram = getMemoryUsage();
-        const userName = pushname || "User";
+        await reply("🔄 Testing button messages... Send .testmenu for full menu test");
         
-        // Menu sections with command lists
-        const sections = [
-            {
-                title: "📂 Command Categories",
-                rows: [
-                    {
-                        header: "⬇️",
-                        title: "Download Commands",
-                        description: "YouTube, TikTok, Facebook, Instagram downloads",
-                        id: ".menu download"
-                    },
-                    {
-                        header: "🔍",
-                        title: "Search Commands", 
-                        description: "Google, YouTube, Wiki, Pinterest search",
-                        id: ".menu search"
-                    },
-                    {
-                        header: "📰",
-                        title: "News Commands",
-                        description: "Latest news and updates",
-                        id: ".menu news"
-                    },
-                    {
-                        header: "🔞",
-                        title: "NSFW Commands",
-                        description: "Adult content commands",
-                        id: ".menu nsfw"
-                    },
-                    {
-                        header: "🤖",
-                        title: "AI Commands",
-                        description: "ChatGPT, Image AI, Voice AI",
-                        id: ".menu ai"
-                    },
-                    {
-                        header: "👥",
-                        title: "Group Commands",
-                        description: "Admin tools, group management",
-                        id: ".menu group"
-                    },
-                    {
-                        header: "⚙️",
-                        title: "Owner Commands",
-                        description: "Bot owner exclusive commands",
-                        id: ".menu owner"
-                    },
-                    {
-                        header: "🧩",
-                        title: "Other Commands",
-                        description: "Tools, fun, converter commands",
-                        id: ".menu other"
-                    },
-                    {
-                        header: "🛠️",
-                        title: "Settings",
-                        description: "Bot configuration settings",
-                        id: ".settings"
-                    }
-                ]
-            }
-        ];
-
-        // Create buttons array
-        const buttons = [
-            // Main menu select button
-            createSingleSelectButton("Click Here ⤵️", sections),
-            
-            // URL button
-            createUrlButton("🌐 GitHub Repo", "https://github.com/Walukapah/SRI-DATABASE"),
-            
-            // Copy button
-            createCopyButton("📋 Copy Owner Number", config.OWNER_NUMBER[0] || "94728115797")
-        ];
-
-        // Menu body text
-        const menuText = `👋 *Hi* ${userName}
-
-*╭─「 ${config.BOT_NAME} MENU 」*
-*│* 👾 *Bot*: ${config.BOT_NAME}
-*│* 👤 *User*: ${userName}
-*│* ☎️ *Owner*: ${config.BOT_INFO.split(';')[1] || 'WALUKA'}
-*│* ⏰ *Uptime*: ${uptime}
-*│* 📂 *Ram*: ${ram}
-*│* ✒️ *Prefix*: ${config.PREFIX}
-╰──────────●●►
-
-🎀 Ξ *Select a Command List:* Ξ`;
-
-        const footerText = `© ${config.BOT_NAME} v${config.VERSION}\nMulti-Number WhatsApp Bot by Walukapah 🇱🇰`;
-
-        // Generate interactive message WITHOUT image (text only)
-        const interactiveMessage = generateInteractiveMessageText(
-            `${config.BOT_NAME} MENU`,
-            menuText,
-            footerText,
-            buttons
-        );
-
-        // Send the interactive message
-        await conn.sendMessage(from, interactiveMessage, { quoted: mek });
-
+        // Test 1: Simple Reply Buttons
+        const btn1 = new Button()
+            .setBody("🤖 *SRI-BOT Button Test*\n\nSelect an option below:")
+            .setFooter(config.BOT_NAME)
+            .addReply("✅ Yes", "btn_yes")
+            .addReply("❌ No", "btn_no")
+            .addReply("📊 Status", "btn_status");
+        
+        await btn1.send(from, conn, mek);
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Test 2: URL and Copy Buttons
+        const btn2 = new Button()
+            .setBody("🔗 *External Links Test*")
+            .setFooter("Tap to visit or copy")
+            .addUrl("🌐 GitHub", "https://github.com/Walukapah", "https://github.com")
+            .addCopy("📋 Copy Number", sender.split('@')[0], "copy_number")
+            .addCall("📞 Call Owner", config.OWNER_NUMBER[0] || "94728115797");
+        
+        await btn2.send(from, conn, mek);
+        
     } catch (error) {
-        console.error('[MENU ERROR]', error);
-        reply(`❌ Error showing menu: ${error.message}`);
+        console.error("Button test error:", error);
+        reply("❌ Error: " + error.message);
     }
 });
 
-// Handle menu category selection
 cmd({
-    pattern: "menuw",
-    alias: ["help"],
-    desc: "Show specific menu category",
-    category: "main",
-    dontAddCommandList: true,
+    pattern: "testmenu",
+    alias: ["menu2", "imenu"],
+    desc: "Test interactive menu with sections",
+    category: "test",
+    react: "📋",
     filename: __filename
-}, async (conn, mek, m, { from, q, reply }) => {
+}, async (conn, mek, m, { from, reply }) => {
     try {
-        const category = q.toLowerCase().trim();
+        // Create interactive menu with sections
+        const menu = new Button()
+            .setTitle(`🤖 ${config.BOT_NAME}`)
+            .setSubtitle("Interactive Menu System")
+            .setBody("👇 Select a category from the menu below:")
+            .setFooter("SRI-BOT 🇱🇰 | v" + config.VERSION);
         
-        const menus = {
-            download: `
-╭───「 ⬇️ *DOWNLOAD COMMANDS* 」───
-│
-│ 🎵 *.yt* <url> - YouTube video/audio
-│ 🎶 *.yta* <url> - YouTube audio only  
-│ 📹 *.ytv* <url> - YouTube video only
-│ 🎵 *.tiktok* <url> - TikTok download
-│ 📘 *.fb* <url> - Facebook download
-│ 📸 *.ig* <url> - Instagram download
-│ 🎧 *.spotify* <url> - Spotify download
-│ 📱 *.mediafire* <url> - MediaFire download
-│
-╰──────────────────────────────`,
-
-            search: `
-╭───「 🔍 *SEARCH COMMANDS* 」───
-│
-│ 🔎 *.google* <query> - Google search
-│ 📺 *.ytsearch* <query> - YouTube search
-│ 🖼️ *.pinterest* <query> - Pinterest images
-│ 📖 *.wiki* <query> - Wikipedia search
-│ 🎵 *.lyrics* <song> - Song lyrics
-│ 🎬 *.movie* <name> - Movie info
-│
-╰──────────────────────────────`,
-
-            ai: `
-╭───「 🤖 *AI COMMANDS* 」───
-│
-│ 💬 *.ai* <text> - Chat with GPT
-│ 🖼️ *.imagine* <prompt> - Generate image
-│ 🎙️ *.voiceai* <text> - Text to speech
-│ 📝 *.translate* <text> - Translator
-│ ✍️ *.rewrite* <text> - Rewrite text
-│
-╰──────────────────────────────`,
-
-            group: `
-╭───「 👥 *GROUP COMMANDS* 」───
-│
-│ 🔗 *.link* - Get group link
-│ 🚫 *.kick* @user - Remove member
-│ ➕ *.add* <number> - Add member
-│ 👑 *.promote* @user - Make admin
-│ 📛 *.demote* @user - Remove admin
-│ 🏷️ *.tagall* - Mention all
-│ 🔇 *.mute* - Mute group
-│ 🔊 *.unmute* - Unmute group
-│ 📋 *.ginfo* - Group info
-│
-╰──────────────────────────────`,
-
-            owner: `
-╭───「 ⚙️ *OWNER COMMANDS* 」───
-│
-│ 🔄 *.restart* - Restart bot
-│ 📊 *.status* - Bot status
-│ 👤 *.setpp* - Set bot picture
-│ 📝 *.setname* <text> - Set bot name
-│ 📢 *.broadcast* <text> - Send to all
-│ ⛔ *.ban* @user - Ban user
-│ ✅ *.unban* @user - Unban user
-│
-╰──────────────────────────────`,
-
-            other: `
-╭───「 🧩 *OTHER COMMANDS* 」───
-│
-│ 😂 *.joke* - Random joke
-│ 🎲 *.roll* - Roll dice
-│ 🎯 *.8ball* <question> - Magic 8-ball
-│ 🎰 *.slot* - Slot machine
-│ 💰 *.balance* - Check balance
-│ 🏆 *.leaderboard* - Top users
-│ ⏰ *.time* - Current time
-│ 📅 *.date* - Current date
-│
-╰──────────────────────────────`,
-
-            nsfw: `
-╭───「 🔞 *NSFW COMMANDS* 」───
-│
-│ ⚠️ *Age restricted content*
-│
-│ Use at your own risk!
-│
-╰──────────────────────────────`,
-
-            news: `
-╭───「 📰 *NEWS COMMANDS* 」───
-│
-│ 📺 *.news* - Latest news
-│ 🌍 *.world* - World news
-│ 🏏 *.sports* - Sports news
-│ 💻 *.tech* - Tech news
-│ 🎬 *.entertainment* - Entertainment
-│
-╰──────────────────────────────`
-        };
-
-        if (menus[category]) {
-            reply(menus[category]);
-        } else {
-            reply("❌ Invalid category. Use *.menu* to see all categories.");
-        }
+        // Add selection with sections
+        menu.addSelection("📂 Browse Categories");
+        
+        // Section 1: Main Commands
+        menu.makeSection("⭐ Main Commands", "Popular");
+        menu.makeRow("🚀", "Ping", "Check bot speed", "menu_ping");
+        menu.makeRow("👤", "Owner", "Contact bot owner", "menu_owner");
+        menu.makeRow("ℹ️", "About", "Bot information", "menu_about");
+        
+        // Section 2: Group Commands
+        menu.makeSection("👥 Group Management", "Admin Only");
+        menu.makeRow("🔗", "Group Link", "Get group invite", "menu_glink");
+        menu.makeRow("👮", "Admins", "List all admins", "menu_admins");
+        menu.makeRow("🚫", "Kick", "Remove member", "menu_kick");
+        
+        // Section 3: Media Commands
+        menu.makeSection("🎬 Media Tools", "Fun");
+        menu.makeRow("🖼️", "Sticker", "Create stickers", "menu_sticker");
+        menu.makeRow("🎵", "Audio", "Audio tools", "menu_audio");
+        menu.makeRow("📹", "Video", "Video downloader", "menu_video");
+        
+        // Add quick action buttons
+        menu.addReply("❓ Help", "btn_help")
+            .addUrl("💻 Source", "https://github.com/Walukapah/SRI-DATABASE");
+        
+        await menu.send(from, conn, mek);
         
     } catch (error) {
-        console.error('[MENU CAT ERROR]', error);
-        reply(`❌ Error: ${error.message}`);
+        console.error("Menu test error:", error);
+        reply("❌ Error: " + error.message);
+    }
+});
+
+cmd({
+    pattern: "testimagebtn",
+    alias: ["imgbtn", "pbtn"],
+    desc: "Test buttons with image",
+    category: "test",
+    react: "🖼️",
+    filename: __filename
+}, async (conn, mek, m, { from, reply }) => {
+    try {
+        const btn = new Button()
+            .setImage(config.MENU_IMG_URL || "https://i.ibb.co/YT2TN2vr/Picsart-25-06-07-13-04-26-190.jpg")
+            .setTitle("🖼️ Image Button Test")
+            .setBody("This is a test of image header with buttons!")
+            .setFooter("SRI-BOT 🇱🇰")
+            .addReply("❤️ Like", "img_like")
+            .addReply("🔁 Share", "img_share")
+            .addUrl("🔗 Visit", config.MEDIA_URL || "https://whatsapp.com");
+        
+        await btn.send(from, conn, mek);
+        
+    } catch (error) {
+        console.error("Image button error:", error);
+        reply("❌ Error: " + error.message);
+    }
+});
+
+// Handle button responses
+cmd({
+    on: "text",
+    pattern: ".*",
+    dontAddCommandList: true
+}, async (conn, mek, m, { from, body, reply }) => {
+    // Check if it's a button response (starts with btn_ or menu_)
+    if (body.startsWith('btn_') || body.startsWith('menu_') || body.startsWith('img_')) {
+        const responses = {
+            'btn_yes': '✅ You clicked YES! Great choice.',
+            'btn_no': '❌ You clicked NO! Maybe next time.',
+            'btn_status': '🤖 Bot is running perfectly!',
+            'btn_help': 'ℹ️ Use .menu for full command list',
+            'menu_ping': '🚀 Use .ping to check speed',
+            'menu_owner': '👤 Use .owner to contact owner',
+            'menu_about': 'ℹ️ SRI-BOT is a multi-number WhatsApp bot',
+            'img_like': '❤️ Thanks for liking!',
+            'img_share': '🔁 Sharing is caring!'
+        };
+        
+        const response = responses[body] || `📌 You selected: *${body}*\n\nThis is an interactive button response!`;
+        await reply(response);
     }
 });
