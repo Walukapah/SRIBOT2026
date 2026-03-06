@@ -13,9 +13,11 @@ const {
     proto,
     generateWAMessageContent,
     generateWAMessage,
+    AnyMessageContent,
     prepareWAMessageMedia,
     areJidsSameUser,
     downloadContentFromMessage,
+    MessageRetryMap,
     generateForwardMessageContent,
     generateWAMessageFromContent,
     generateMessageID, makeInMemoryStore,
@@ -59,9 +61,6 @@ const repo = process.env.GITHUB_REPO_NAME || 'SRI-DATABASE';
 const activeSockets = new Map();
 const socketCreationTime = new Map();
 const SESSION_BASE_PATH = './sessions';
-
-// Make activeSockets global for access from plugins
-global.activeSockets = activeSockets;
 
 // Ensure session directory exists
 if (!fs.existsSync(SESSION_BASE_PATH)) {
@@ -702,7 +701,7 @@ function setupMessageHandlers(conn, number, messageStore) {
         const groupAdmins = isGroup ? await getGroupAdmins(participants) : '';
         const isBotAdmins = isGroup ? groupAdmins.includes(botNumber2) : false;
         const isAdmins = isGroup ? groupAdmins.includes(sender) : false;
-        const isReact = m.message?.reactionMessage ? true : false;
+        const isReact = m.message.reactionMessage ? true : false;
         const reply = (teks) => {
             conn.sendMessage(from, { text: teks }, { quoted: mek });
         }
@@ -905,131 +904,6 @@ function setupMessageHandlers(conn, number, messageStore) {
             messageStore.delete(deletedId);
         }
         
-        // ============================================
-        // BUTTON RESPONSE HANDLERS
-        // ============================================
-        
-        // Handle Interactive Button Responses (New Format)
-        if (mek.message?.interactiveResponseMessage) {
-            const paramsJson = mek.message.interactiveResponseMessage.nativeFlowResponseMessage?.paramsJson;
-            if (paramsJson) {
-                try {
-                    const buttonData = JSON.parse(paramsJson);
-                    const buttonId = buttonData.id;
-                    
-                    console.log(`[BUTTON] Interactive button clicked: ${buttonId} by ${senderNumber}`);
-                    
-                    // Execute command based on button ID
-                    if (buttonId && buttonId.startsWith(currentConfig.PREFIX)) {
-                        const cmdText = buttonId.slice(currentConfig.PREFIX.length).trim().split(' ')[0].toLowerCase();
-                        
-                        // Find and execute command
-                        const events = require('./command');
-                        const cmd = events.commands.find((c) => c.pattern === cmdText) || 
-                                   events.commands.find((c) => c.alias && c.alias.includes(cmdText));
-                        
-                        if (cmd) {
-                            // Create fake message object for command execution
-                            const fakeMek = {
-                                ...mek,
-                                message: {
-                                    conversation: buttonId
-                                },
-                                body: buttonId
-                            };
-                            
-                            try {
-                                await cmd.function(conn, fakeMek, m, {
-                                    from, quoted, body: buttonId, isCmd: true, 
-                                    command: cmdText, args: [], q: '', isGroup, sender, 
-                                    senderNumber, botNumber2, botNumber, pushname, isMe, 
-                                    isOwner, groupMetadata, groupName, participants, 
-                                    groupAdmins, isBotAdmins, isAdmins, reply
-                                });
-                            } catch (e) {
-                                console.error("[BUTTON CMD ERROR]", e);
-                                reply('❌ Button command execution failed.');
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.error("[BUTTON PARSE ERROR]", e);
-                }
-            }
-        }
-
-        // Handle Template Button Responses (Legacy Format)
-        if (mek.message?.templateButtonReplyMessage) {
-            const selectedId = mek.message.templateButtonReplyMessage.selectedId;
-            console.log(`[BUTTON] Template button clicked: ${selectedId} by ${senderNumber}`);
-            
-            if (selectedId && selectedId.startsWith(currentConfig.PREFIX)) {
-                const cmdText = selectedId.slice(currentConfig.PREFIX.length).trim().split(' ')[0].toLowerCase();
-                
-                const events = require('./command');
-                const cmd = events.commands.find((c) => c.pattern === cmdText) || 
-                           events.commands.find((c) => c.alias && c.alias.includes(cmdText));
-                
-                if (cmd) {
-                    const fakeMek = {
-                        ...mek,
-                        message: {
-                            conversation: selectedId
-                        },
-                        body: selectedId
-                    };
-                    
-                    try {
-                        await cmd.function(conn, fakeMek, m, {
-                            from, quoted, body: selectedId, isCmd: true, 
-                            command: cmdText, args: [], q: '', isGroup, sender, 
-                            senderNumber, botNumber2, botNumber, pushname, isMe, 
-                            isOwner, groupMetadata, groupName, participants, 
-                            groupAdmins, isBotAdmins, isAdmins, reply
-                        });
-                    } catch (e) {
-                        console.error("[TEMPLATE BUTTON CMD ERROR]", e);
-                    }
-                }
-            }
-        }
-
-        // Handle List Response Message
-        if (mek.message?.listResponseMessage) {
-            const selectedRowId = mek.message.listResponseMessage.singleSelectReply?.selectedRowId;
-            console.log(`[LIST] List item selected: ${selectedRowId} by ${senderNumber}`);
-            
-            if (selectedRowId && selectedRowId.startsWith(currentConfig.PREFIX)) {
-                const cmdText = selectedRowId.slice(currentConfig.PREFIX.length).trim().split(' ')[0].toLowerCase();
-                
-                const events = require('./command');
-                const cmd = events.commands.find((c) => c.pattern === cmdText) || 
-                           events.commands.find((c) => c.alias && c.alias.includes(cmdText));
-                
-                if (cmd) {
-                    const fakeMek = {
-                        ...mek,
-                        message: {
-                            conversation: selectedRowId
-                        },
-                        body: selectedRowId
-                    };
-                    
-                    try {
-                        await cmd.function(conn, fakeMek, m, {
-                            from, quoted, body: selectedRowId, isCmd: true, 
-                            command: cmdText, args: [], q: '', isGroup, sender, 
-                            senderNumber, botNumber2, botNumber, pushname, isMe, 
-                            isOwner, groupMetadata, groupName, participants, 
-                            groupAdmins, isBotAdmins, isAdmins, reply
-                        });
-                    } catch (e) {
-                        console.error("[LIST CMD ERROR]", e);
-                    }
-                }
-            }
-        }
-        
         conn.sendFileUrl = async (jid, url, caption, quoted, options = {}) => {
             let mime = '';
             let res = await axios.head(url);
@@ -1050,6 +924,107 @@ function setupMessageHandlers(conn, number, messageStore) {
             if (mime.split("/")[0] === "audio") {
                 return conn.sendMessage(jid, { audio: await getBuffer(url), caption: caption, mimetype: 'audio/mpeg', ...options }, { quoted: quoted, ...options });
             }
+        }
+
+        // ============================================
+        // HANDLE BUTTON RESPONSES (INTERACTIVE MESSAGES)
+        // ============================================
+        
+        // Check for interactive message responses
+        let selectedId = '';
+        let selectedText = '';
+        
+        // Handle native flow response (new button format)
+        if (mek.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson) {
+            try {
+                const params = JSON.parse(mek.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson);
+                selectedId = params.id || '';
+                console.log(`[BUTTON] Native flow response: ${selectedId}`);
+            } catch (e) {
+                console.log('[BUTTON] Error parsing paramsJson:', e);
+            }
+        }
+        // Handle body text from interactive response
+        else if (mek.message?.interactiveResponseMessage?.body?.text) {
+            selectedText = mek.message.interactiveResponseMessage.body.text;
+            console.log(`[BUTTON] Interactive body text: ${selectedText}`);
+        }
+        // Handle legacy buttons response
+        else if (mek.message?.buttonsResponseMessage?.selectedButtonId) {
+            selectedId = mek.message.buttonsResponseMessage.selectedButtonId;
+            console.log(`[BUTTON] Legacy button: ${selectedId}`);
+        }
+        // Handle list response
+        else if (mek.message?.listResponseMessage?.singleSelectReply?.selectedRowId) {
+            selectedId = mek.message.listResponseMessage.singleSelectReply.selectedRowId;
+            console.log(`[BUTTON] List selection: ${selectedId}`);
+        }
+        // Handle template button
+        else if (mek.message?.templateButtonReplyMessage?.selectedId) {
+            selectedId = mek.message.templateButtonReplyMessage.selectedId;
+            console.log(`[BUTTON] Template button: ${selectedId}`);
+        }
+
+        // Process button click as command if it starts with prefix
+        if (selectedId && selectedId.startsWith(currentConfig.PREFIX)) {
+            console.log(`[BUTTON] Processing button command: ${selectedId}`);
+            
+            // Remove prefix and parse command
+            const commandText = selectedId.slice(currentConfig.PREFIX.length).trim();
+            const commandName = commandText.split(' ')[0].toLowerCase();
+            const commandArgs = commandText.split(' ').slice(1);
+            const commandQ = commandArgs.join(' ');
+            
+            // Find the command
+            const events = require('./command');
+            const foundCmd = events.commands.find((cmd) => 
+                cmd.pattern === commandName || 
+                (cmd.alias && cmd.alias.includes(commandName))
+            );
+            
+            if (foundCmd) {
+                try {
+                    // Execute the command
+                    await foundCmd.function(conn, mek, m, {
+                        from, 
+                        quoted, 
+                        body: selectedId, 
+                        isCmd: true, 
+                        command: commandName, 
+                        args: commandArgs, 
+                        q: commandQ, 
+                        isGroup, 
+                        sender, 
+                        senderNumber, 
+                        botNumber2, 
+                        botNumber, 
+                        pushname, 
+                        isMe, 
+                        isOwner, 
+                        groupMetadata, 
+                        groupName, 
+                        participants, 
+                        groupAdmins, 
+                        isBotAdmins, 
+                        isAdmins, 
+                        reply
+                    });
+                    return; // Stop further processing
+                } catch (e) {
+                    console.error('[BUTTON CMD ERROR]', e);
+                    reply('❌ Error executing button command');
+                    return;
+                }
+            } else {
+                reply(`❌ Command not found: ${commandName}`);
+                return;
+            }
+        }
+
+        // Handle settings button
+        if (selectedId === '.settings' || selectedId === 'settings') {
+            reply(`⚙️ *Settings Menu*\n\nUse *.config* to change settings\nUse *.status* to view current settings`);
+            return;
         }
 
         // WORK TYPE (using currentConfig)
