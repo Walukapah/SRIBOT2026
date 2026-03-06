@@ -15,7 +15,7 @@ cmd({
 }, async (conn, mek, m, { from, reply, pushname }) => {
     try {
         // Example image URL - you can use any image
-        const imageUrl = config.MENU_IMG_URL || "https://images.weserv.nl/?url=i.imgur.com/W2CaVZW.jpeg";
+        const imageUrl = config.MENU_IMG_URL || "https://i.ibb.co/YT2TN2vr/Picsart-25-06-07-13-04-26-190.jpg";
         
         const btn = new Button();
         
@@ -109,7 +109,7 @@ cmd({
     filename: __filename
 }, async (conn, mek, m, { from, reply }) => {
     try {
-        const imageUrl = "https://images.weserv.nl/?url=i.imgur.com/W2CaVZW.jpeg";
+        const imageUrl = "https://i.ibb.co/YT2TN2vr/Picsart-25-06-07-13-04-26-190.jpg";
         
         const buttons = [
             { type: 'reply', text: '✅ Yes', id: 'quick_yes' },
@@ -148,7 +148,7 @@ cmd({
         reply("⏳ Downloading image...");
         
         // Download image to buffer
-        const imageUrl = config.MENU_IMG_URL || "https://images.weserv.nl/?url=i.imgur.com/W2CaVZW.jpeg";
+        const imageUrl = config.MENU_IMG_URL || "https://i.ibb.co/YT2TN2vr/Picsart-25-06-07-13-04-26-190.jpg";
         const buffer = await getBuffer(imageUrl);
         
         const buttons = [
@@ -197,7 +197,7 @@ cmd({
             console.log('[LOCALIMG] Using local file:', localPath);
         } else {
             // Fallback to URL
-            imageSource = config.MENU_IMG_URL || "https://images.weserv.nl/?url=i.imgur.com/W2CaVZW.jpeg";
+            imageSource = config.MENU_IMG_URL || "https://i.ibb.co/YT2TN2vr/Picsart-25-06-07-13-04-26-190.jpg";
             console.log('[LOCALIMG] Local file not found, using URL');
         }
         
