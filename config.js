@@ -10,7 +10,12 @@ const baseConfig = {
     PREFIX: process.env.PREFIX || ".",
     BOT_NAME: process.env.BOT_NAME || "SRI-BOT 🇱🇰",
     BOT_INFO: process.env.BOT_INFO || "SRI-BOT🇱🇰;WALUKA👊;https://i.imgur.com/r3GZeiX.jpeg",
-    OWNER_NUMBER: process.env.OWNER_NUMBER || ["94753670175"],
+    // FIXED: Ensure OWNER_NUMBER is always an array
+    OWNER_NUMBER: process.env.OWNER_NUMBER 
+        ? (typeof process.env.OWNER_NUMBER === 'string' 
+            ? process.env.OWNER_NUMBER.split(',').map(n => n.trim().replace(/[^0-9]/g, '')) 
+            : process.env.OWNER_NUMBER)
+        : ["94753670175"],
     ALIVE_IMG: process.env.ALIVE_IMG || "https://i.ibb.co/YT2TN2vr/Picsart-25-06-07-13-04-26-190.jpg",
     ALIVE_MSG: process.env.ALIVE_MSG || "iyoo whats up 💫",
     MENU_IMG_URL: process.env.MENU_IMG_URL || "https://i.ibb.co/39ZGzmvy/3f3f9ebb848e.png",
@@ -59,20 +64,31 @@ function loadLocalConfigSync(number) {
     return null;
 }
 
+// Helper function to ensure OWNER_NUMBER is always an array
+function ensureOwnerNumberArray(config) {
+    if (config.OWNER_NUMBER && !Array.isArray(config.OWNER_NUMBER)) {
+        config.OWNER_NUMBER = typeof config.OWNER_NUMBER === 'string' 
+            ? config.OWNER_NUMBER.split(',').map(n => n.trim().replace(/[^0-9]/g, ''))
+            : [config.OWNER_NUMBER];
+    }
+    return config;
+}
+
 // Get config for specific number (with GitHub integration)
 async function getConfig(number) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
     
     // Check if we have cached config
     if (userConfigs.has(sanitizedNumber)) {
-        return userConfigs.get(sanitizedNumber);
+        return ensureOwnerNumberArray(userConfigs.get(sanitizedNumber));
     }
     
     // Try to load from local file first (faster)
     const localConfig = loadLocalConfigSync(sanitizedNumber);
     if (localConfig) {
-        userConfigs.set(sanitizedNumber, localConfig);
-        return localConfig;
+        const fixedConfig = ensureOwnerNumberArray({ ...baseConfig, ...localConfig });
+        userConfigs.set(sanitizedNumber, fixedConfig);
+        return fixedConfig;
     }
     
     // Try to load from GitHub
@@ -89,7 +105,7 @@ async function getConfig(number) {
         });
         
         const content = Buffer.from(data.content, 'base64').toString('utf8');
-        const userConfig = { ...baseConfig, ...JSON.parse(content) };
+        const userConfig = ensureOwnerNumberArray({ ...baseConfig, ...JSON.parse(content) });
         userConfigs.set(sanitizedNumber, userConfig);
         
         // Save to local file for faster access next time
@@ -104,7 +120,7 @@ async function getConfig(number) {
         return userConfig;
     } catch (error) {
         // If not found on GitHub, use base config
-        const userConfig = { ...baseConfig };
+        const userConfig = ensureOwnerNumberArray({ ...baseConfig });
         userConfigs.set(sanitizedNumber, userConfig);
         return userConfig;
     }
@@ -115,23 +131,24 @@ function getConfigSync(number) {
     const sanitizedNumber = number ? number.replace(/[^0-9]/g, '') : getCurrentNumber();
     
     if (!sanitizedNumber) {
-        return { ...baseConfig };
+        return ensureOwnerNumberArray({ ...baseConfig });
     }
     
     // Always check memory cache first
     if (userConfigs.has(sanitizedNumber)) {
-        return userConfigs.get(sanitizedNumber);
+        return ensureOwnerNumberArray(userConfigs.get(sanitizedNumber));
     }
     
     // Then check local file (CRITICAL for Koyeb startup)
     const localConfig = loadLocalConfigSync(sanitizedNumber);
     if (localConfig) {
-        userConfigs.set(sanitizedNumber, localConfig);
-        return localConfig;
+        const fixedConfig = ensureOwnerNumberArray({ ...baseConfig, ...localConfig });
+        userConfigs.set(sanitizedNumber, fixedConfig);
+        return fixedConfig;
     }
     
     // Return base config if nothing found
-    const userConfig = { ...baseConfig };
+    const userConfig = ensureOwnerNumberArray({ ...baseConfig });
     userConfigs.set(sanitizedNumber, userConfig);
     return userConfig;
 }
@@ -150,6 +167,9 @@ async function updateConfig(number, newConfig) {
     // Merge with existing config
     const currentConfig = await getConfig(sanitizedNumber);
     const updatedConfig = { ...currentConfig, ...newConfig };
+    
+    // FIXED: Ensure OWNER_NUMBER remains array after update
+    ensureOwnerNumberArray(updatedConfig);
     
     // Update cache immediately
     userConfigs.set(sanitizedNumber, updatedConfig);
@@ -255,9 +275,10 @@ async function initializeConfig(number) {
     // First try to load from local file
     const localConfig = loadLocalConfigSync(sanitizedNumber);
     if (localConfig) {
-        userConfigs.set(sanitizedNumber, localConfig);
+        const fixedConfig = ensureOwnerNumberArray(localConfig);
+        userConfigs.set(sanitizedNumber, fixedConfig);
         console.log(`[CONFIG] Config loaded from local file for ${sanitizedNumber}`);
-        return localConfig;
+        return fixedConfig;
     }
     
     // If no local file, try to fetch from GitHub
@@ -267,7 +288,7 @@ async function initializeConfig(number) {
         return config;
     } catch (error) {
         console.log(`[CONFIG] Using base config for ${sanitizedNumber}`);
-        const baseCfg = { ...baseConfig };
+        const baseCfg = ensureOwnerNumberArray({ ...baseConfig });
         userConfigs.set(sanitizedNumber, baseCfg);
         return baseCfg;
     }
