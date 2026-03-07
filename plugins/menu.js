@@ -72,14 +72,17 @@ cmd({
     }
 });
 
-// Download Commands Handler
+// Download Commands Handler - FIXED: on: "body" with pattern check
 cmd({
     pattern: "download_cmd",
-    on: "text",
+    on: "body",
     dontAddCommandList: true,
     filename: __filename
-}, async (conn, mek, m, { from, reply, sender }) => {
+}, async (conn, mek, m, { from, reply, sender, body }) => {
     try {
+        // Check if body matches the pattern
+        if (body !== "download_cmd") return;
+        
         const prefix = config.PREFIX;
         const botName = config.BOT_NAME;
         
@@ -105,14 +108,17 @@ cmd({
     }
 });
 
-// Search Commands Handler
+// Search Commands Handler - FIXED
 cmd({
     pattern: "search_cmd",
-    on: "text",
+    on: "body",
     dontAddCommandList: true,
     filename: __filename
-}, async (conn, mek, m, { from, reply }) => {
+}, async (conn, mek, m, { from, reply, body }) => {
     try {
+        // Check if body matches the pattern
+        if (body !== "search_cmd") return;
+        
         const prefix = config.PREFIX;
         const botName = config.BOT_NAME;
         
@@ -138,14 +144,17 @@ cmd({
     }
 });
 
-// Owner Commands Handler
+// Owner Commands Handler - FIXED
 cmd({
     pattern: "owner_cmd",
-    on: "text",
+    on: "body",
     dontAddCommandList: true,
     filename: __filename
-}, async (conn, mek, m, { from, reply, sender }) => {
+}, async (conn, mek, m, { from, reply, sender, body }) => {
     try {
+        // Check if body matches the pattern
+        if (body !== "owner_cmd") return;
+        
         const prefix = config.PREFIX;
         const botName = config.BOT_NAME;
         
@@ -181,14 +190,17 @@ cmd({
     }
 });
 
-// Other Commands Handler
+// Other Commands Handler - FIXED
 cmd({
     pattern: "other_cmd",
-    on: "text",
+    on: "body",
     dontAddCommandList: true,
     filename: __filename
-}, async (conn, mek, m, { from, reply }) => {
+}, async (conn, mek, m, { from, reply, body }) => {
     try {
+        // Check if body matches the pattern
+        if (body !== "other_cmd") return;
+        
         const prefix = config.PREFIX;
         const botName = config.BOT_NAME;
         
@@ -220,14 +232,17 @@ cmd({
     }
 });
 
-// Settings Commands Handler
+// Settings Commands Handler - FIXED
 cmd({
     pattern: "setting_cmd",
-    on: "text",
+    on: "body",
     dontAddCommandList: true,
     filename: __filename
-}, async (conn, mek, m, { from, reply, sender }) => {
+}, async (conn, mek, m, { from, reply, sender, body }) => {
     try {
+        // Check if body matches the pattern
+        if (body !== "setting_cmd") return;
+        
         const prefix = config.PREFIX;
         const botName = config.BOT_NAME;
         
