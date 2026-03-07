@@ -72,7 +72,7 @@ cmd({
     }
 });
 
-// Download Commands Handler - FIXED: on: "body" with pattern check
+// Download Commands Handler
 cmd({
     pattern: "download_cmd",
     on: "body",
@@ -108,7 +108,7 @@ cmd({
     }
 });
 
-// Search Commands Handler - FIXED
+// Search Commands Handler
 cmd({
     pattern: "search_cmd",
     on: "body",
@@ -144,7 +144,7 @@ cmd({
     }
 });
 
-// Owner Commands Handler - FIXED
+// Owner Commands Handler - FIXED: Added proper OWNER_NUMBER check
 cmd({
     pattern: "owner_cmd",
     on: "body",
@@ -158,8 +158,15 @@ cmd({
         const prefix = config.PREFIX;
         const botName = config.BOT_NAME;
         
+        // FIXED: Ensure OWNER_NUMBER is always an array
+        const ownerNumber = Array.isArray(config.OWNER_NUMBER) 
+            ? config.OWNER_NUMBER 
+            : typeof config.OWNER_NUMBER === 'string' 
+                ? [config.OWNER_NUMBER] 
+                : [];
+        
         // Check if sender is owner
-        const isOwner = config.OWNER_NUMBER.includes(sender.split('@')[0]);
+        const isOwner = ownerNumber.includes(sender.split('@')[0]);
         
         if (!isOwner) {
             return reply("⛔ *This command is only for owners!*");
@@ -190,7 +197,7 @@ cmd({
     }
 });
 
-// Other Commands Handler - FIXED
+// Other Commands Handler
 cmd({
     pattern: "other_cmd",
     on: "body",
@@ -232,7 +239,7 @@ cmd({
     }
 });
 
-// Settings Commands Handler - FIXED
+// Settings Commands Handler - FIXED: Added proper OWNER_NUMBER check
 cmd({
     pattern: "setting_cmd",
     on: "body",
@@ -246,8 +253,15 @@ cmd({
         const prefix = config.PREFIX;
         const botName = config.BOT_NAME;
         
+        // FIXED: Ensure OWNER_NUMBER is always an array
+        const ownerNumber = Array.isArray(config.OWNER_NUMBER) 
+            ? config.OWNER_NUMBER 
+            : typeof config.OWNER_NUMBER === 'string' 
+                ? [config.OWNER_NUMBER] 
+                : [];
+        
         // Check if sender is owner
-        const isOwner = config.OWNER_NUMBER.includes(sender.split('@')[0]);
+        const isOwner = ownerNumber.includes(sender.split('@')[0]);
         
         if (!isOwner) {
             return reply("⛔ *This command is only for owners!*");
