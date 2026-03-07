@@ -3,7 +3,7 @@ const { cmd } = require('../command');
 const config = require('../config');
 const { runtime } = require('../lib/functions');
 
-// Helper function to check if user is owner
+// Helper function to check if user is owner - FIXED
 function checkIsOwner(config, userNumber) {
     const ownerNumber = Array.isArray(config.OWNER_NUMBER) 
         ? config.OWNER_NUMBER 
@@ -11,15 +11,42 @@ function checkIsOwner(config, userNumber) {
             ? [config.OWNER_NUMBER] 
             : [];
     
-    // Clean numbers (remove non-digits)
+    // Clean numbers - keep country code
     const cleanUser = userNumber.replace(/[^0-9]/g, '');
+    // Don't remove leading digits from owner numbers
     const cleanOwners = ownerNumber.map(n => n.toString().replace(/[^0-9]/g, ''));
     
     console.log("[CHECK_OWNER] User:", cleanUser);
     console.log("[CHECK_OWNER] Owners:", cleanOwners);
-    console.log("[CHECK_OWNER] Match:", cleanOwners.includes(cleanUser));
     
-    return cleanOwners.includes(cleanUser);
+    // Check if user number ends with any owner number (handles LID case)
+    // OR exact match
+    const isMatch = cleanOwners.some(owner => {
+        const exactMatch = cleanUser === owner;
+        const endsWithMatch = cleanUser.endsWith(owner) || owner.endsWith(cleanUser);
+        return exactMatch || endsWithMatch;
+    });
+    
+    console.log("[CHECK_OWNER] Match:", isMatch);
+    return isMatch;
+}
+
+// Helper to get actual phone number from mek.key - FIXED for LID
+function getActualUserNumber(mek) {
+    // Try remoteJidAlt first (contains actual phone number)
+    if (mek.key.remoteJidAlt) {
+        const altNumber = mek.key.remoteJidAlt.split('@')[0];
+        console.log("[GET_USER] Using remoteJidAlt:", altNumber);
+        return altNumber;
+    }
+    
+    // Fallback to participant or remoteJid
+    const jid = mek.key.participant || mek.key.remoteJid;
+    if (!jid) return '';
+    
+    const number = jid.split('@')[0];
+    console.log("[GET_USER] Using participant/remoteJid:", number);
+    return number;
 }
 
 // Main Menu Command
@@ -136,7 +163,7 @@ cmd({
     await reply(searchMenu);
 });
 
-// Owner Commands Handler - FIXED
+// Owner Commands Handler - FIXED for LID
 cmd({
     pattern: "owner_cmd",
     on: "body",
@@ -145,19 +172,16 @@ cmd({
 }, async (conn, mek, m, { from, reply, body }) => {
     if (body !== "owner_cmd") return;
     
-    // FIXED: Get actual user who clicked the button
-    // mek.key.participant is the actual user in group chats
-    // mek.key.remoteJid is the chat ID
-    const actualUser = mek.key.participant || mek.key.remoteJid;
-    const userNumber = actualUser ? actualUser.split('@')[0] : '';
+    // FIXED: Get actual user number using remoteJidAlt (handles LID)
+    const userNumber = getActualUserNumber(mek);
     
-    console.log("[OWNER_CMD] Button clicked by:", userNumber);
     console.log("[OWNER_CMD] mek.key:", JSON.stringify(mek.key));
+    console.log("[OWNER_CMD] Extracted user number:", userNumber);
     
     const isOwner = checkIsOwner(config, userNumber);
     
     if (!isOwner) {
-        return reply(`⛔ *This command is only for owners!*\n\nYour number: ${userNumber}\nOwner numbers: ${JSON.stringify(config.OWNER_NUMBER)}`);
+        return reply(`⛔ *This command is only for owners!*\n\nYour number: ${userNumber}\nConfig owners: ${JSON.stringify(config.OWNER_NUMBER)}`);
     }
     
     const prefix = config.PREFIX;
@@ -222,7 +246,7 @@ cmd({
     await reply(otherMenu);
 });
 
-// Settings Commands Handler - FIXED
+// Settings Commands Handler - FIXED for LID
 cmd({
     pattern: "setting_cmd",
     on: "body",
@@ -231,11 +255,10 @@ cmd({
 }, async (conn, mek, m, { from, reply, body }) => {
     if (body !== "setting_cmd") return;
     
-    // FIXED: Get actual user who clicked the button
-    const actualUser = mek.key.participant || mek.key.remoteJid;
-    const userNumber = actualUser ? actualUser.split('@')[0] : '';
+    // FIXED: Get actual user number using remoteJidAlt
+    const userNumber = getActualUserNumber(mek);
     
-    console.log("[SETTING_CMD] Button clicked by:", userNumber);
+    console.log("[SETTING_CMD] Extracted user number:", userNumber);
     
     const isOwner = checkIsOwner(config, userNumber);
     
