@@ -607,22 +607,28 @@ function setupMessageHandlers(conn, number, messageStore) {
         // This ensures .config changes take effect immediately
         const currentConfig = config.reloadConfig(number);
         
-        // Auto mark as seen and read (using dynamic config)
+        // ============================================
+        // FIXED: Ensure array configs are always arrays
+        // ============================================
+        const ownerNumber = Array.isArray(currentConfig.OWNER_NUMBER) 
+            ? currentConfig.OWNER_NUMBER 
+            : typeof currentConfig.OWNER_NUMBER === 'string' 
+                ? [currentConfig.OWNER_NUMBER] 
+                : [];
+        
+        // Auto mark as read (using dynamic config) - FIXED: removed sendReadReceipt
         if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true") {
             try {
                 const from = mek.key.remoteJid;
                 const id = mek.key.id;
                 const participant = mek.key.participant || from;
 
-                // Seen (double grey tick ✓✓)
-                await conn.sendReadReceipt(from, id, [participant]);
-
-                // Read (blue tick ✓✓)
+                // Only use readMessages (sendReadReceipt is not available in new Baileys)
                 await conn.readMessages([{ remoteJid: from, id: id, participant: participant }]);
 
-                console.log(blue + `[READ] Marked message from ${from} as seen & read for ${number}.` + reset);
+                console.log(blue + `[READ] Marked message from ${from} as read for ${number}.` + reset);
             } catch (error) {
-                console.error(red + `[READ] Error marking message as seen/read for ${number}:`, error + reset);
+                console.error(red + `[READ] Error marking message as read for ${number}:`, error + reset);
             }
         }
 
@@ -757,8 +763,8 @@ function setupMessageHandlers(conn, number, messageStore) {
         const pushname = mek.pushName || 'Sin Nombre';
         const isMe = botNumber.includes(senderNumber);
         
-        // IMPORTANT: Check owner from currentConfig, not from env
-        const isOwner = currentConfig.OWNER_NUMBER.includes(senderNumber) || isMe;
+        // FIXED: Use ownerNumber array that we created above
+        const isOwner = ownerNumber.includes(senderNumber) || isMe;
         
         const botNumber2 = await jidNormalizedUser(conn.user.id);
         const groupMetadata = isGroup ? await conn.groupMetadata(from).catch(e => {}) : '';
