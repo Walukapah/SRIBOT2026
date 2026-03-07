@@ -246,7 +246,7 @@ cmd({
     await reply(otherMenu);
 });
 
-// Settings Commands Handler - FIXED for LID
+// Settings Commands Handler - BOT NUMBER ONLY
 cmd({
     pattern: "setting_cmd",
     on: "body",
@@ -255,15 +255,27 @@ cmd({
 }, async (conn, mek, m, { from, reply, body }) => {
     if (body !== "setting_cmd") return;
     
-    // FIXED: Get actual user number using remoteJidAlt
+    // BOT NUMBER ONLY - Check if message is from bot itself
+    // mek.key.fromMe = true means bot sent the message (button click from bot's side)
+    // But we need to check who clicked the button, so we use remoteJidAlt or participant
+    
+    const botNumber = conn.user.id.split(':')[0]; // Get bot number (94756209082)
     const userNumber = getActualUserNumber(mek);
     
-    console.log("[SETTING_CMD] Extracted user number:", userNumber);
+    console.log("[SETTING_CMD] Bot number:", botNumber);
+    console.log("[SETTING_CMD] User number:", userNumber);
     
-    const isOwner = checkIsOwner(config, userNumber);
+    // STRICT CHECK: Only allow if user is the bot number itself
+    // This means only 94756209082 can use settings commands
+    const cleanBot = botNumber.replace(/[^0-9]/g, '');
+    const cleanUser = userNumber.replace(/[^0-9]/g, '');
     
-    if (!isOwner) {
-        return reply(`⛔ *This command is only for owners!*\n\nYour number: ${userNumber}`);
+    // Check if user number matches bot number
+    // Also allow if fromMe is true (bot messaging itself)
+    const isBotItself = cleanUser === cleanBot || cleanUser.endsWith(cleanBot) || mek.key.fromMe;
+    
+    if (!isBotItself) {
+        return reply(`⛔ *Settings commands are restricted to bot number only!*\n\nYour number: ${userNumber}\nAllowed: ${botNumber}`);
     }
     
     const prefix = config.PREFIX;
