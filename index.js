@@ -1073,24 +1073,50 @@ function setupMessageHandlers(conn, number, messageStore) {
         // =======================================
         // EVENT HANDLERS (on: body, text, etc.)
         // =======================================
+        // FIXED: Stop after first match to prevent duplicate messages
         
-        events.commands.map(async(command) => {
+        let handled = false;
+        
+        for (const command of events.commands) {
+            if (handled) break; // Stop if already handled
+            
             if (body && command.on === "body") {
-                command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                // Check if this command's pattern matches the body
+                if (command.pattern && body.trim() === command.pattern) {
+                    try {
+                        await command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                        handled = true; // Mark as handled
+                        console.log(`[HANDLER] Body handler matched: ${command.pattern}`);
+                    } catch (e) {
+                        console.error("[BODY HANDLER ERROR] " + e);
+                    }
+                }
             } else if (mek.q && command.on === "text") {
-                command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                try {
+                    command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                } catch (e) {
+                    console.error("[TEXT HANDLER ERROR] " + e);
+                }
             } else if (
                 (command.on === "image" || command.on === "photo") &&
                 mek.type === "imageMessage"
             ) {
-                command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                try {
+                    command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                } catch (e) {
+                    console.error("[IMAGE HANDLER ERROR] " + e);
+                }
             } else if (
                 command.on === "sticker" &&
                 mek.type === "stickerMessage"
             ) {
-                command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                try {
+                    command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                } catch (e) {
+                    console.error("[STICKER HANDLER ERROR] " + e);
+                }
             }
-        });
+        }
     });
 }
 
