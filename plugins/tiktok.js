@@ -81,7 +81,17 @@ cmd({
 
             const sentMsg = await conn.sendMessage(from, { 
                 image: { url: videoInfo.cover_image }, 
-                caption: infoMsg 
+                caption: infoMsg,
+                contextInfo: {
+                    externalAdReply: {
+                        title: "TikTok Downloader",
+                        body: `${author.nickname}'s video`,
+                        thumbnailUrl: videoInfo.cover_image,
+                        sourceUrl: tiktokUrl,
+                        mediaType: 1,
+                        renderLargerThumbnail: true
+                    }
+                }
             }, { quoted: mek });
 
             const messageID = sentMsg.key.id;
@@ -125,15 +135,7 @@ cmd({
                             msg = await conn.sendMessage(from, { text: "⏳ Downloading HD Video (No Watermark)..." }, { quoted: mekInfo });
                             await conn.sendMessage(from, {
                                 video: { url: downloadLinks.no_watermark.hd },
-                                caption: `🎬 *TikTok Video (HD - No Watermark)*\n\n👤 ${author.nickname}\n📝 ${videoInfo.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`,
-                                contextInfo: {
-                                    externalAdReply: {
-                                        title: "TikTok Video HD",
-                                        body: author.nickname,
-                                        thumbnailUrl: videoInfo.cover_image,
-                                        mediaType: 1
-                                    }
-                                }
+                                caption: `🎬 *TikTok Video (HD - No Watermark)*\n\n👤 ${author.nickname}\n📝 ${videoInfo.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
                             }, { quoted: mekInfo });
                             await conn.sendMessage(from, { text: '✅ HD Video Downloaded ✅', edit: msg.key });
                             return;
@@ -155,15 +157,7 @@ cmd({
                             msg = await conn.sendMessage(from, { text: "⏳ Downloading Video (With Watermark)..." }, { quoted: mekInfo });
                             await conn.sendMessage(from, {
                                 video: { url: downloadLinks.with_watermark.url },
-                                caption: `🎬 *TikTok Video (With Watermark)*\n\n👤 ${author.nickname}\n📝 ${videoInfo.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`,
-                                contextInfo: {
-                                    externalAdReply: {
-                                        title: "TikTok Video (WM)",
-                                        body: author.nickname,
-                                        thumbnailUrl: videoInfo.cover_image,
-                                        mediaType: 1
-                                    }
-                                }
+                                caption: `🎬 *TikTok Video (With Watermark)*\n\n👤 ${author.nickname}\n📝 ${videoInfo.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
                             }, { quoted: mekInfo });
                             await conn.sendMessage(from, { text: '✅ Video (With Watermark) Downloaded ✅', edit: msg.key });
                             return;
@@ -244,12 +238,16 @@ cmd({
             btn.addSelection("📥 Select Download Option");
             btn.makeSection("⬇️ Download Options", "Choose what to download");
 
-            const videoHDId = `ttvidhd_${Date.now()}`;
-            const videoHDDocumentId = `ttvidhddoc_${Date.now()}`;
-            const videoWMId = `ttvidwm_${Date.now()}`;
-            const videoWMDocumentId = `ttvidwmdoc_${Date.now()}`;
-            const audioId = `ttaud_${Date.now()}`;
-            const audioDocumentId = `ttauddoc_${Date.now()}`;
+            // Generate unique IDs with timestamp and random number
+            const timestamp = Date.now();
+            const random = Math.floor(Math.random() * 1000);
+
+            const videoHDId = `ttvidhd_${timestamp}_${random}`;
+            const videoHDDocumentId = `ttvidhddoc_${timestamp}_${random}`;
+            const videoWMId = `ttvidwm_${timestamp}_${random}`;
+            const videoWMDocumentId = `ttvidwmdoc_${timestamp}_${random}`;
+            const audioId = `ttaud_${timestamp}_${random}`;
+            const audioDocumentId = `ttauddoc_${timestamp}_${random}`;
 
             btn.makeRow("🎬", "No WM Video HD", "High quality no watermark", videoHDId);
             btn.makeRow("📄", "No WM Video HD (Doc)", "HD video as document", videoHDDocumentId);
@@ -263,77 +261,92 @@ cmd({
 
             const sentMsg = await btn.send(from, conn, mek);
 
+            console.log(`[TIKTOK] Button message sent with ID: ${sentMsg?.key?.id}`);
+            console.log(`[TIKTOK] Video HD ID: ${videoHDId}`);
+            console.log(`[TIKTOK] Audio ID: ${audioId}`);
+
             // Store download data for button response handling
             const messageId = sentMsg?.key?.id || mek.key.id;
 
-            global.tiktokDownloads.set(videoHDId, {
-                type: 'video',
-                quality: 'HD',
-                mode: 'normal',
-                url: downloadLinks.no_watermark.hd,
-                coverImage: videoInfo.cover_image,
-                author: author.nickname,
-                caption: videoInfo.caption,
-                username: author.username,
-                parentMsgId: messageId
-            });
+            const downloadData = {
+                videoHD: {
+                    type: 'video',
+                    quality: 'HD',
+                    mode: 'normal',
+                    url: downloadLinks.no_watermark.hd,
+                    coverImage: videoInfo.cover_image,
+                    author: author.nickname,
+                    caption: videoInfo.caption,
+                    username: author.username,
+                    parentMsgId: messageId
+                },
+                videoHDDocument: {
+                    type: 'video',
+                    quality: 'HD',
+                    mode: 'document',
+                    url: downloadLinks.no_watermark.hd,
+                    coverImage: videoInfo.cover_image,
+                    author: author.nickname,
+                    caption: videoInfo.caption,
+                    username: author.username,
+                    parentMsgId: messageId
+                },
+                videoWM: {
+                    type: 'video',
+                    quality: 'WM',
+                    mode: 'normal',
+                    url: downloadLinks.with_watermark.url,
+                    coverImage: videoInfo.cover_image,
+                    author: author.nickname,
+                    caption: videoInfo.caption,
+                    username: author.username,
+                    parentMsgId: messageId
+                },
+                videoWMDocument: {
+                    type: 'video',
+                    quality: 'WM',
+                    mode: 'document',
+                    url: downloadLinks.with_watermark.url,
+                    coverImage: videoInfo.cover_image,
+                    author: author.nickname,
+                    caption: videoInfo.caption,
+                    username: author.username,
+                    parentMsgId: messageId
+                },
+                audio: {
+                    type: 'audio',
+                    mode: 'normal',
+                    url: music.play_url,
+                    coverImage: videoInfo.cover_image,
+                    author: author.nickname,
+                    title: music.title,
+                    musicAuthor: music.author,
+                    parentMsgId: messageId
+                },
+                audioDocument: {
+                    type: 'audio',
+                    mode: 'document',
+                    url: music.play_url,
+                    coverImage: videoInfo.cover_image,
+                    author: author.nickname,
+                    title: music.title,
+                    musicAuthor: music.author,
+                    parentMsgId: messageId
+                }
+            };
 
-            global.tiktokDownloads.set(videoHDDocumentId, {
-                type: 'video',
-                quality: 'HD',
-                mode: 'document',
-                url: downloadLinks.no_watermark.hd,
-                coverImage: videoInfo.cover_image,
-                author: author.nickname,
-                caption: videoInfo.caption,
-                username: author.username,
-                parentMsgId: messageId
-            });
+            // Store all data with their IDs
+            global.tiktokDownloads.set(videoHDId, downloadData.videoHD);
+            global.tiktokDownloads.set(videoHDDocumentId, downloadData.videoHDDocument);
+            global.tiktokDownloads.set(videoWMId, downloadData.videoWM);
+            global.tiktokDownloads.set(videoWMDocumentId, downloadData.videoWMDocument);
+            global.tiktokDownloads.set(audioId, downloadData.audio);
+            global.tiktokDownloads.set(audioDocumentId, downloadData.audioDocument);
 
-            global.tiktokDownloads.set(videoWMId, {
-                type: 'video',
-                quality: 'WM',
-                mode: 'normal',
-                url: downloadLinks.with_watermark.url,
-                coverImage: videoInfo.cover_image,
-                author: author.nickname,
-                caption: videoInfo.caption,
-                username: author.username,
-                parentMsgId: messageId
-            });
-
-            global.tiktokDownloads.set(videoWMDocumentId, {
-                type: 'video',
-                quality: 'WM',
-                mode: 'document',
-                url: downloadLinks.with_watermark.url,
-                coverImage: videoInfo.cover_image,
-                author: author.nickname,
-                caption: videoInfo.caption,
-                username: author.username,
-                parentMsgId: messageId
-            });
-
-            global.tiktokDownloads.set(audioId, {
-                type: 'audio',
-                mode: 'normal',
-                url: music.play_url,
-                coverImage: videoInfo.cover_image,
-                author: author.nickname,
-                title: music.title,
-                musicAuthor: music.author,
-                parentMsgId: messageId
-            });
-
-            global.tiktokDownloads.set(audioDocumentId, {
-                type: 'audio',
-                mode: 'document',
-                url: music.play_url,
-                coverImage: videoInfo.cover_image,
-                author: author.nickname,
-                title: music.title,
-                musicAuthor: music.author,
-                parentMsgId: messageId
+            // Also store reference to all IDs for this message
+            global.tiktokDownloads.set(`msg_${messageId}`, {
+                ids: [videoHDId, videoHDDocumentId, videoWMId, videoWMDocumentId, audioId, audioDocumentId],
+                timestamp: Date.now()
             });
         }
 
@@ -343,205 +356,81 @@ cmd({
     }
 });
 
-// Handle Button Mode Responses - No Watermark HD Video
+// Universal Button Handler - handles all button responses
 cmd({
-    pattern: "ttvidhd_",
+    pattern: "tt",
     on: "body",
     dontAddCommandList: true,
     filename: __filename
 }, async (conn, mek, m, { from, reply, body }) => {
-    if (!body || !body.startsWith('ttvidhd_') || !global.tiktokDownloads) return;
+    // Check if this is a TikTok button response
+    if (!body || !global.tiktokDownloads) return;
+
+    // Check if body starts with any of our TikTok button IDs
+    const tiktokPatterns = ['ttvidhd_', 'ttvidhddoc_', 'ttvidwm_', 'ttvidwmdoc_', 'ttaud_', 'ttauddoc_'];
+    const isTikTokButton = tiktokPatterns.some(pattern => body.startsWith(pattern));
+
+    if (!isTikTokButton) return;
+
+    console.log(`[TIKTOK BUTTON] Received button response: ${body}`);
 
     const downloadData = global.tiktokDownloads.get(body);
-    if (!downloadData || downloadData.type !== 'video') return;
+    if (!downloadData) {
+        console.log(`[TIKTOK BUTTON] No download data found for ID: ${body}`);
+        return reply(`❌ Download data expired or not found. Please try the command again.`);
+    }
 
     try {
-        await reply(`⏳ *Downloading ${downloadData.quality} video...*`);
+        if (downloadData.type === 'video') {
+            if (downloadData.mode === 'document') {
+                // Video as Document
+                await reply(`⏳ *Downloading ${downloadData.quality} video as document...*`);
 
-        await conn.sendMessage(from, {
-            video: { url: downloadData.url },
-            caption: `🎬 *TikTok Video (${downloadData.quality} - No Watermark)*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`,
-            contextInfo: {
-                externalAdReply: {
-                    title: `TikTok Video ${downloadData.quality}`,
-                    body: downloadData.author,
-                    thumbnailUrl: downloadData.coverImage,
-                    mediaType: 1
-                }
+                await conn.sendMessage(from, {
+                    document: { url: downloadData.url },
+                    mimetype: 'video/mp4',
+                    fileName: `TikTok_${downloadData.username}_${Date.now()}_${downloadData.quality}_${downloadData.mode === 'document' ? 'NoWM' : 'WM'}.mp4`,
+                    caption: `🎬 *TikTok Video (${downloadData.quality} - ${downloadData.mode === 'document' ? 'No Watermark' : 'With Watermark'} - Document)*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                }, { quoted: mek });
+            } else {
+                // Normal Video
+                await reply(`⏳ *Downloading ${downloadData.quality} video...*`);
+
+                await conn.sendMessage(from, {
+                    video: { url: downloadData.url },
+                    caption: `🎬 *TikTok Video (${downloadData.quality} - ${downloadData.quality === 'WM' ? 'With Watermark' : 'No Watermark'})*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                }, { quoted: mek });
             }
-        }, { quoted: mek });
+        } else if (downloadData.type === 'audio') {
+            if (downloadData.mode === 'document') {
+                // Audio as Document
+                await reply(`⏳ *Downloading audio as document...*`);
 
-        setTimeout(() => {
-            global.tiktokDownloads.delete(body);
-        }, 300000);
+                await conn.sendMessage(from, {
+                    document: { url: downloadData.url },
+                    mimetype: 'audio/mpeg',
+                    fileName: `TikTok_${downloadData.title || 'Audio'}_${Date.now()}.mp3`,
+                    caption: `🎵 *TikTok Music*\n\n🎶 ${downloadData.title || 'Unknown'}\n👤 ${downloadData.musicAuthor || 'Unknown'}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                }, { quoted: mek });
+            } else {
+                // Normal Audio
+                await reply(`⏳ *Downloading audio...*`);
 
-    } catch (error) {
-        console.error("Video download error:", error);
-        reply(`❌ *Failed to download video!*\n\n${error.message}`);
-    }
-});
-
-// Handle Button Mode Responses - No Watermark HD Video Document
-cmd({
-    pattern: "ttvidhddoc_",
-    on: "body",
-    dontAddCommandList: true,
-    filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
-    if (!body || !body.startsWith('ttvidhddoc_') || !global.tiktokDownloads) return;
-
-    const downloadData = global.tiktokDownloads.get(body);
-    if (!downloadData || downloadData.type !== 'video' || downloadData.mode !== 'document') return;
-
-    try {
-        await reply(`⏳ *Downloading HD video as document...*`);
-
-        await conn.sendMessage(from, {
-            document: { url: downloadData.url },
-            mimetype: 'video/mp4',
-            fileName: `TikTok_${downloadData.username}_${Date.now()}_HD_NoWM.mp4`,
-            caption: `🎬 *TikTok Video (HD - No Watermark - Document)*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
-        }, { quoted: mek });
-
-        setTimeout(() => {
-            global.tiktokDownloads.delete(body);
-        }, 300000);
-
-    } catch (error) {
-        console.error("Video document download error:", error);
-        reply(`❌ *Failed to download video document!*\n\n${error.message}`);
-    }
-});
-
-// Handle Button Mode Responses - With Watermark Video
-cmd({
-    pattern: "ttvidwm_",
-    on: "body",
-    dontAddCommandList: true,
-    filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
-    if (!body || !body.startsWith('ttvidwm_') || !global.tiktokDownloads) return;
-
-    const downloadData = global.tiktokDownloads.get(body);
-    if (!downloadData || downloadData.type !== 'video') return;
-
-    try {
-        await reply(`⏳ *Downloading video with watermark...*`);
-
-        await conn.sendMessage(from, {
-            video: { url: downloadData.url },
-            caption: `🎬 *TikTok Video (With Watermark)*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`,
-            contextInfo: {
-                externalAdReply: {
-                    title: "TikTok Video (WM)",
-                    body: downloadData.author,
-                    thumbnailUrl: downloadData.coverImage,
-                    mediaType: 1
-                }
+                await conn.sendMessage(from, {
+                    audio: { url: downloadData.url },
+                    mimetype: 'audio/mpeg',
+                    ptt: false
+                }, { quoted: mek });
             }
-        }, { quoted: mek });
+        }
 
+        // Clean up after 5 minutes
         setTimeout(() => {
             global.tiktokDownloads.delete(body);
         }, 300000);
 
     } catch (error) {
-        console.error("Video WM download error:", error);
-        reply(`❌ *Failed to download video!*\n\n${error.message}`);
-    }
-});
-
-// Handle Button Mode Responses - With Watermark Video Document
-cmd({
-    pattern: "ttvidwmdoc_",
-    on: "body",
-    dontAddCommandList: true,
-    filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
-    if (!body || !body.startsWith('ttvidwmdoc_') || !global.tiktokDownloads) return;
-
-    const downloadData = global.tiktokDownloads.get(body);
-    if (!downloadData || downloadData.type !== 'video' || downloadData.mode !== 'document') return;
-
-    try {
-        await reply(`⏳ *Downloading WM video as document...*`);
-
-        await conn.sendMessage(from, {
-            document: { url: downloadData.url },
-            mimetype: 'video/mp4',
-            fileName: `TikTok_${downloadData.username}_${Date.now()}_WM.mp4`,
-            caption: `🎬 *TikTok Video (With Watermark - Document)*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
-        }, { quoted: mek });
-
-        setTimeout(() => {
-            global.tiktokDownloads.delete(body);
-        }, 300000);
-
-    } catch (error) {
-        console.error("Video WM document download error:", error);
-        reply(`❌ *Failed to download video document!*\n\n${error.message}`);
-    }
-});
-
-// Handle Button Mode Responses - Audio
-cmd({
-    pattern: "ttaud_",
-    on: "body",
-    dontAddCommandList: true,
-    filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
-    if (!body || !body.startsWith('ttaud_') || !global.tiktokDownloads) return;
-
-    const downloadData = global.tiktokDownloads.get(body);
-    if (!downloadData || downloadData.type !== 'audio') return;
-
-    try {
-        await reply(`⏳ *Downloading audio...*`);
-
-        await conn.sendMessage(from, {
-            audio: { url: downloadData.url },
-            mimetype: 'audio/mpeg',
-            ptt: false
-        }, { quoted: mek });
-
-        setTimeout(() => {
-            global.tiktokDownloads.delete(body);
-        }, 300000);
-
-    } catch (error) {
-        console.error("Audio download error:", error);
-        reply(`❌ *Failed to download audio!*\n\n${error.message}`);
-    }
-});
-
-// Handle Button Mode Responses - Audio Document
-cmd({
-    pattern: "ttauddoc_",
-    on: "body",
-    dontAddCommandList: true,
-    filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
-    if (!body || !body.startsWith('ttauddoc_') || !global.tiktokDownloads) return;
-
-    const downloadData = global.tiktokDownloads.get(body);
-    if (!downloadData || downloadData.type !== 'audio' || downloadData.mode !== 'document') return;
-
-    try {
-        await reply(`⏳ *Downloading audio as document...*`);
-
-        await conn.sendMessage(from, {
-            document: { url: downloadData.url },
-            mimetype: 'audio/mpeg',
-            fileName: `TikTok_${downloadData.title || 'Audio'}_${Date.now()}.mp3`,
-            caption: `🎵 *TikTok Music*\n\n🎶 ${downloadData.title || 'Unknown'}\n👤 ${downloadData.musicAuthor || 'Unknown'}\n\n📥 Downloaded via ${config.BOT_NAME}`
-        }, { quoted: mek });
-
-        setTimeout(() => {
-            global.tiktokDownloads.delete(body);
-        }, 300000);
-
-    } catch (error) {
-        console.error("Audio document download error:", error);
-        reply(`❌ *Failed to download audio document!*\n\n${error.message}`);
+        console.error("[TIKTOK BUTTON ERROR]", error);
+        reply(`❌ *Failed to download!*\n\n${error.message}`);
     }
 });
