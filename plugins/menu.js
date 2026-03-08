@@ -49,11 +49,11 @@ function getActualUserNumber(mek) {
     return number;
 }
 
-// Main Menu Command
+// Main Menu Command - Supports both TEXT and BUTTON modes
 cmd({
     pattern: "menu",
     alias: ["list", "commands", "cmd"],
-    desc: "Show bot menu with interactive buttons",
+    desc: "Show bot menu with interactive buttons or text",
     category: "main",
     react: "📋",
     filename: __filename
@@ -65,12 +65,10 @@ cmd({
         const uptime = runtime(process.uptime());
         const usedRam = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
         const totalRam = (process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2);
+        const messageType = config.MESSAGE_TYPE || 'button'; // Get MESSAGE_TYPE from config
         
-        const btn = new Button();
-        await btn.setImage(menuImg);
-        btn.setTitle(`${botName} MENU`);
-        
-        const bodyText = `👋 *ʜɪ* @${sender.split('@')[0]}\n\n` +
+        // Common menu data
+        const headerText = `👋 *ʜɪ* @${sender.split('@')[0]}\n\n` +
             `*╭─「 BOT'S MENU 」*\n` +
             `*│*👾 *Bot*: *${botName}*\n` +
             `*│*👤 *User*: @${sender.split('@')[0]}\n` +
@@ -78,22 +76,49 @@ cmd({
             `*│*⏰ *Uptime*: ${uptime}\n` +
             `*│*📂 *Ram*: ${usedRam}MB / ${totalRam}MB\n` +
             `*│*✒️ *Prefix*: ${prefix}\n` +
-            `╰──────────●●►\n\n` +
-            `🎀 Ξ *Select a Command List:* Ξ`;
+            `╰──────────●●►\n\n`;
         
-        btn.setBody(bodyText);
-        btn.setFooter(`© ${botName} v${config.VERSION}`);
-        
-        btn.addSelection("📂 SELECT OPTION");
-        btn.makeSection("⬇️ Select Option", `${botName}`);
-        btn.makeRow("📥", "Download Commands", "Download Command Menu", "download_cmd");
-        btn.makeRow("🔍", "Search Commands", "Search Command Menu", "search_cmd");
-        btn.makeRow("👑", "Owner Commands", "Owner Command Menu", "owner_cmd");
-        btn.makeRow("🛠️", "Other Commands", "Other Command Menu", "other_cmd");
-        btn.makeRow("⚙️", "Settings", "Bot Settings Command Menu", "setting_cmd");
-        btn.addUrl("💬 Channel", config.MEDIA_URL || "https://whatsapp.com");
-        
-        await btn.send(from, conn, mek);
+        // Check if TEXT mode or BUTTON mode
+        if (messageType === 'text') {
+            // ========== TEXT MODE ==========
+            let textMenu = headerText +
+                `📜 *COMMAND LIST*\n\n` +
+                `*${prefix}downloadmenu* - 📥 Download Commands\n` +
+                `*${prefix}searchmenu* - 🔍 Search Commands\n` +
+                `*${prefix}ownermenu* - 👑 Owner Commands\n` +
+                `*${prefix}othermenu* - 🛠️ Other Commands\n` +
+                `*${prefix}settingsmenu* - ⚙️ Settings Commands\n\n` +
+                `© ${botName} v${config.VERSION}`;
+            
+            // Send as text message with image
+            await conn.sendMessage(from, {
+                image: { url: menuImg },
+                caption: textMenu,
+                mentions: [sender]
+            }, { quoted: mek });
+            
+        } else {
+            // ========== BUTTON MODE ==========
+            const btn = new Button();
+            await btn.setImage(menuImg);
+            btn.setTitle(`${botName} MENU`);
+            
+            const bodyText = headerText + `🎀 Ξ *Select a Command List:* Ξ`;
+            
+            btn.setBody(bodyText);
+            btn.setFooter(`© ${botName} v${config.VERSION}`);
+            
+            btn.addSelection("📂 SELECT OPTION");
+            btn.makeSection("⬇️ Select Option", `${botName}`);
+            btn.makeRow("📥", "Download Commands", "Download Command Menu", "download_cmd");
+            btn.makeRow("🔍", "Search Commands", "Search Command Menu", "search_cmd");
+            btn.makeRow("👑", "Owner Commands", "Owner Command Menu", "owner_cmd");
+            btn.makeRow("🛠️", "Other Commands", "Other Command Menu", "other_cmd");
+            btn.makeRow("⚙️", "Settings", "Bot Settings Command Menu", "setting_cmd");
+            btn.addUrl("💬 Channel", config.MEDIA_URL || "https://whatsapp.com");
+            
+            await btn.send(from, conn, mek);
+        }
         
     } catch (error) {
         console.error("Menu error:", error);
@@ -101,6 +126,180 @@ cmd({
     }
 });
 
+// Text Menu Commands (for MESSAGE_TYPE = 'text')
+cmd({
+    pattern: "downloadmenu",
+    desc: "Show download commands",
+    category: "main",
+    filename: __filename
+}, async (conn, mek, m, { from, reply }) => {
+    const prefix = config.PREFIX;
+    const botName = config.BOT_NAME;
+    
+    const menu = `*╭─「 📥 DOWNLOAD COMMANDS 」*\n` +
+        `*│*\n` +
+        `*│* ${prefix}ytmp3 <url> - *YouTube MP3*\n` +
+        `*│* ${prefix}ytmp4 <url> - *YouTube Video*\n` +
+        `*│* ${prefix}play <song> - *Search & Download*\n` +
+        `*│* ${prefix}tiktok <url> - *TikTok Video*\n` +
+        `*│* ${prefix}ig <url> - *Instagram*\n` +
+        `*│* ${prefix}fb <url> - *Facebook*\n` +
+        `*│* ${prefix}twitter <url> - *Twitter/X*\n` +
+        `*│* ${prefix}mediafire <url> - *MediaFire*\n` +
+        `*│* ${prefix}gdrive <url> - *Google Drive*\n` +
+        `*│* ${prefix}apk <app> - *APK Download*\n` +
+        `*│*\n` +
+        `╰──────────●●►\n\n` +
+        `© ${botName} v${config.VERSION}`;
+    
+    await reply(menu);
+});
+
+cmd({
+    pattern: "searchmenu",
+    desc: "Show search commands",
+    category: "main",
+    filename: __filename
+}, async (conn, mek, m, { from, reply }) => {
+    const prefix = config.PREFIX;
+    const botName = config.BOT_NAME;
+    
+    const menu = `*╭─「 🔍 SEARCH COMMANDS 」*\n` +
+        `*│*\n` +
+        `*│* ${prefix}yts <query> - *YouTube Search*\n` +
+        `*│* ${prefix}img <query> - *Google Images*\n` +
+        `*│* ${prefix}pinterest <query> - *Pinterest*\n` +
+        `*│* ${prefix}wiki <query> - *Wikipedia*\n` +
+        `*│* ${prefix}news - *Latest News*\n` +
+        `*│* ${prefix}weather <city> - *Weather*\n` +
+        `*│* ${prefix}movie <name> - *Movie Info*\n` +
+        `*│* ${prefix}songinfo <name> - *Song Info*\n` +
+        `*│* ${prefix}lyrics <song> - *Lyrics*\n` +
+        `*│* ${prefix}github <user> - *GitHub*\n` +
+        `*│*\n` +
+        `╰──────────●●►\n\n` +
+        `© ${botName} v${config.VERSION}`;
+    
+    await reply(menu);
+});
+
+cmd({
+    pattern: "ownermenu",
+    desc: "Show owner commands",
+    category: "main",
+    filename: __filename
+}, async (conn, mek, m, { from, reply, sender }) => {
+    const userNumber = getActualUserNumber(mek);
+    const isOwner = checkIsOwner(config, userNumber);
+    
+    if (!isOwner) {
+        return reply(`⛔ *This command is only for owners!*`);
+    }
+    
+    const prefix = config.PREFIX;
+    const botName = config.BOT_NAME;
+    
+    const menu = `*╭─「 👑 OWNER COMMANDS 」*\n` +
+        `*│*\n` +
+        `*│* ${prefix}broadcast <text> - *Send to all*\n` +
+        `*│* ${prefix}ban <@user> - *Ban User*\n` +
+        `*│* ${prefix}unban <@user> - *Unban User*\n` +
+        `*│* ${prefix}restart - *Restart Bot*\n` +
+        `*│* ${prefix}shutdown - *Shutdown*\n` +
+        `*│* ${prefix}setvar <var>=<val> - *Set Config*\n` +
+        `*│* ${prefix}getvar <var> - *Get Config*\n` +
+        `*│* ${prefix}block <@user> - *Block*\n` +
+        `*│* ${prefix}unblock <@user> - *Unblock*\n` +
+        `*│* ${prefix}join <link> - *Join Group*\n` +
+        `*│* ${prefix}leave - *Leave Group*\n` +
+        `*│* ${prefix}addsudo <num> - *Add Owner*\n` +
+        `*│* ${prefix}delsudo <num> - *Remove Owner*\n` +
+        `*│*\n` +
+        `╰──────────●●►\n\n` +
+        `© ${botName} v${config.VERSION}`;
+    
+    await reply(menu);
+});
+
+cmd({
+    pattern: "othermenu",
+    desc: "Show other commands",
+    category: "main",
+    filename: __filename
+}, async (conn, mek, m, { from, reply }) => {
+    const prefix = config.PREFIX;
+    const botName = config.BOT_NAME;
+    
+    const menu = `*╭─「 🛠️ OTHER COMMANDS 」*\n` +
+        `*│*\n` +
+        `*│* ${prefix}sticker - *Create Sticker*\n` +
+        `*│* ${prefix}toimg - *Sticker to Image*\n` +
+        `*│* ${prefix}tovid - *Sticker to Video*\n` +
+        `*│* ${prefix}ttp <text> - *Text to Pic*\n` +
+        `*│* ${prefix}attp <text> - *Animated Text*\n` +
+        `*│* ${prefix}emojimix 🎉+😂 - *Mix Emojis*\n` +
+        `*│* ${prefix}translate <lang> <text> - *Translate*\n` +
+        `*│* ${prefix}tts <text> - *Text to Speech*\n` +
+        `*│* ${prefix}qr <text> - *Generate QR*\n` +
+        `*│* ${prefix}short <url> - *Short URL*\n` +
+        `*│* ${prefix}calc <math> - *Calculator*\n` +
+        `*│* ${prefix}time - *Current Time*\n` +
+        `*│* ${prefix}date - *Current Date*\n` +
+        `*│* ${prefix}joke - *Random Joke*\n` +
+        `*│* ${prefix}fact - *Random Fact*\n` +
+        `*│* ${prefix}quote - *Random Quote*\n` +
+        `*│*\n` +
+        `╰──────────●●►\n\n` +
+        `© ${botName} v${config.VERSION}`;
+    
+    await reply(menu);
+});
+
+cmd({
+    pattern: "settingsmenu",
+    desc: "Show settings commands",
+    category: "main",
+    filename: __filename
+}, async (conn, mek, m, { from, reply }) => {
+    const botNumber = conn.user.id.split(':')[0];
+    const userNumber = getActualUserNumber(mek);
+    
+    // STRICT CHECK: Only bot number itself
+    const cleanBot = botNumber.replace(/[^0-9]/g, '');
+    const cleanUser = userNumber.replace(/[^0-9]/g, '');
+    const isBotItself = cleanUser === cleanBot || cleanUser.endsWith(cleanBot) || mek.key.fromMe;
+    
+    if (!isBotItself) {
+        return reply(`⛔ *Settings commands are restricted to bot number only!*`);
+    }
+    
+    const prefix = config.PREFIX;
+    const botName = config.BOT_NAME;
+    
+    const menu = `*╭─「 ⚙️ SETTINGS COMMANDS 」*\n` +
+        `*│*\n` +
+        `*│* ${prefix}autoread <on/off> - *Auto Read Status*\n` +
+        `*│* ${prefix}autoreact <on/off> - *Auto React Status*\n` +
+        `*│* ${prefix}antidelete <on/off> - *Anti Delete*\n` +
+        `*│* ${prefix}antilink <on/off> - *Anti Links*\n` +
+        `*│* ${prefix}antispam <on/off> - *Anti Spam*\n` +
+        `*│* ${prefix}autorecord <on/off> - *Auto Recording*\n` +
+        `*│* ${prefix}mode <public/private> - *Bot Mode*\n` +
+        `*│* ${prefix}prefix <new> - *Change Prefix*\n` +
+        `*│* ${prefix}messagetype <text/button> - *Message Type*\n` +
+        `*│* ${prefix}aliveimg <url> - *Set Alive Img*\n` +
+        `*│* ${prefix}menuimg <url> - *Set Menu Img*\n` +
+        `*│* ${prefix}botname <name> - *Change Bot Name*\n` +
+        `*│* ${prefix}alivemsg <text> - *Set Alive Msg*\n` +
+        `*│* ${prefix}reactemoji <emoji> - *Status React*\n` +
+        `*│*\n` +
+        `╰──────────●●►\n\n` +
+        `© ${botName} v${config.VERSION}`;
+    
+    await reply(menu);
+});
+
+// Button Response Handlers (keep existing ones for button mode)
 // Download Commands Handler
 cmd({
     pattern: "download_cmd",
@@ -256,22 +455,15 @@ cmd({
     if (body !== "setting_cmd") return;
     
     // BOT NUMBER ONLY - Check if message is from bot itself
-    // mek.key.fromMe = true means bot sent the message (button click from bot's side)
-    // But we need to check who clicked the button, so we use remoteJidAlt or participant
-    
-    const botNumber = conn.user.id.split(':')[0]; // Get bot number (94756209082)
+    const botNumber = conn.user.id.split(':')[0];
     const userNumber = getActualUserNumber(mek);
     
     console.log("[SETTING_CMD] Bot number:", botNumber);
     console.log("[SETTING_CMD] User number:", userNumber);
     
     // STRICT CHECK: Only allow if user is the bot number itself
-    // This means only 94756209082 can use settings commands
     const cleanBot = botNumber.replace(/[^0-9]/g, '');
     const cleanUser = userNumber.replace(/[^0-9]/g, '');
-    
-    // Check if user number matches bot number
-    // Also allow if fromMe is true (bot messaging itself)
     const isBotItself = cleanUser === cleanBot || cleanUser.endsWith(cleanBot) || mek.key.fromMe;
     
     if (!isBotItself) {
@@ -291,6 +483,7 @@ cmd({
         `*│* ${prefix}autorecord <on/off> - *Auto Recording*\n` +
         `*│* ${prefix}mode <public/private> - *Bot Mode*\n` +
         `*│* ${prefix}prefix <newprefix> - *Change Prefix*\n` +
+        `*│* ${prefix}messagetype <text/button> - *Message Type*\n` +
         `*│* ${prefix}aliveimg <url> - *Set Alive Image*\n` +
         `*│* ${prefix}menuimg <url> - *Set Menu Image*\n` +
         `*│* ${prefix}botname <name> - *Change Bot Name*\n` +
