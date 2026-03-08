@@ -3,6 +3,9 @@ const { Button } = require('../lib/button');
 const config = require('../config');
 const { getBuffer, fetchJson } = require('../lib/functions');
 
+// Store TikTok downloads globally
+if (!global.tiktokDownloads) global.tiktokDownloads = new Map();
+
 // TikTok Download Command
 cmd({
     pattern: "tiktok",
@@ -18,7 +21,7 @@ cmd({
         const messageType = config.MESSAGE_TYPE || 'button';
         
         // Check if URL is provided
-        if (!q || !q.includes('tiktok.com') && !q.includes('vt.tiktok')) {
+        if (!q || (!q.includes('tiktok.com') && !q.includes('vt.tiktok'))) {
             return reply(`❌ *Please provide a valid TikTok URL!*\n\n*Usage:* ${prefix}tiktok <video-url>\n\n*Example:*\n${prefix}tiktok https://vt.tiktok.com/ZSuYLQkMm/`);
         }
 
@@ -31,7 +34,7 @@ cmd({
         }
 
         // Send processing message
-        const processingMsg = await reply(`⏳ *Downloading TikTok video...*\n\n🔄 Please wait while I fetch the video...`);
+        await reply(`⏳ *Downloading TikTok video...*\n\n🔄 Please wait while I fetch the video...`);
 
         // Call API
         const apiUrl = `https://sri-api.vercel.app/download/tiktokdl?url=${encodeURIComponent(tiktokUrl)}`;
@@ -39,7 +42,6 @@ cmd({
 
         // Check API response
         if (!response || !response.status || !response.result || !response.result.data) {
-            await conn.sendMessage(from, { delete: processingMsg.key });
             return reply(`❌ *Failed to fetch video!*\n\nThe video might be private, deleted, or the API is temporarily unavailable.`);
         }
 
@@ -64,9 +66,6 @@ cmd({
             `   💾 ${stats.saves} Saves\n\n` +
             `🎶 *Music:* ${music.title} - ${music.author}`;
 
-        // Delete processing message
-        await conn.sendMessage(from, { delete: processingMsg.key });
-
         // Check message type
         if (messageType === 'text') {
             // ========== TEXT MODE ==========
@@ -86,8 +85,8 @@ cmd({
             }, { quoted: mek });
 
             // Store download data for reply handling
-            if (!global.tiktokDownloads) global.tiktokDownloads = new Map();
-            global.tiktokDownloads.set(sentMsg.key.id, {
+            const messageId = sentMsg?.key?.id || mek.key.id;
+            global.tiktokDownloads.set(messageId, {
                 videoUrl: downloadLinks.no_watermark.url,
                 musicUrl: music.play_url,
                 coverImage: videoInfo.cover_image,
@@ -108,8 +107,12 @@ cmd({
             // Add selection for download options
             btn.addSelection("📥 Select Download Option");
             btn.makeSection("⬇️ Download Options", "Choose what to download");
-            btn.makeRow("🎬", "Download Video", "No watermark HD video", `tt_video_${Date.now()}`);
-            btn.makeRow("🎵", "Download Music", "Original audio/MP3", `tt_music_${Date.now()}`);
+            
+            const videoId = `ttvid_${Date.now()}`;
+            const musicId = `ttmus_${Date.now()}`;
+            
+            btn.makeRow("🎬", "Download Video", "No watermark HD video", videoId);
+            btn.makeRow("🎵", "Download Music", "Original audio/MP3", musicId);
             
             // Add URL button to view original
             btn.addUrl("🔗 View on TikTok", tiktokUrl);
@@ -117,24 +120,24 @@ cmd({
             const sentMsg = await btn.send(from, conn, mek);
 
             // Store download data for button response handling
-            if (!global.tiktokDownloads) global.tiktokDownloads = new Map();
+            const messageId = sentMsg?.key?.id || mek.key.id;
             
-            // Extract button IDs from sent message (we'll use timestamp-based matching)
-            const timestamp = Date.now();
-            global.tiktokDownloads.set(`tt_video_${timestamp}`, {
+            global.tiktokDownloads.set(videoId, {
                 type: 'video',
                 url: downloadLinks.no_watermark.url,
                 coverImage: videoInfo.cover_image,
                 author: author.nickname,
-                caption: videoInfo.caption
+                caption: videoInfo.caption,
+                parentMsgId: messageId
             });
             
-            global.tiktokDownloads.set(`tt_music_${timestamp}`, {
+            global.tiktokDownloads.set(musicId, {
                 type: 'music',
                 url: music.play_url,
                 coverImage: videoInfo.cover_image,
                 author: author.nickname,
-                title: music.title
+                title: music.title,
+                parentMsgId: messageId
             });
         }
 
@@ -154,16 +157,17 @@ cmd({
     // Check if this is a reply to our TikTok message
     if (!quoted || !global.tiktokDownloads) return;
     
-    const downloadData = global.tiktokDownloads.get(quoted.key.id);
+    const quotedId = quoted.key?.id;
+    if (!quotedId) return;
+    
+    const downloadData = global.tiktokDownloads.get(quotedId);
     if (!downloadData) return;
 
     try {
-        const processingMsg = await reply(`⏳ *Downloading video...*`);
+        await reply(`⏳ *Downloading video...*`);
         
         // Download and send video
         const videoBuffer = await getBuffer(downloadData.videoUrl);
-        
-        await conn.sendMessage(from, { delete: processingMsg.key });
         
         await conn.sendMessage(from, {
             video: videoBuffer,
@@ -193,29 +197,23 @@ cmd({
     // Check if this is a reply to our TikTok message
     if (!quoted || !global.tiktokDownloads) return;
     
-    const downloadData = global.tiktokDownloads.get(quoted.key.id);
+    const quotedId = quoted.key?.id;
+    if (!quotedId) return;
+    
+    const downloadData = global.tiktokDownloads.get(quotedId);
     if (!downloadData) return;
 
     try {
-        const processingMsg = await reply(`⏳ *Downloading music...*`);
+        await reply(`⏳ *Downloading music...*`);
         
         // Download and send music
         const musicBuffer = await getBuffer(downloadData.musicUrl);
         
-        await conn.sendMessage(from, { delete: processingMsg.key });
-        
+        // Send as audio
         await conn.sendMessage(from, {
             audio: musicBuffer,
             mimetype: 'audio/mpeg',
-            ptt: false,
-            contextInfo: {
-                externalAdReply: {
-                    title: "TikTok Music",
-                    body: downloadData.author,
-                    thumbnailUrl: downloadData.coverImage,
-                    mediaType: 1
-                }
-            }
+            ptt: false
         }, { quoted: mek });
 
         // Also send as document for better quality
@@ -232,24 +230,22 @@ cmd({
     }
 });
 
-// Handle Button Mode Responses
+// Handle Button Mode Responses - Video
 cmd({
-    pattern: "tt_video_",
+    pattern: "ttvid_",
     on: "body",
     dontAddCommandList: true,
     filename: __filename
 }, async (conn, mek, m, { from, reply, body }) => {
-    if (!body || !body.startsWith('tt_video_') || !global.tiktokDownloads) return;
+    if (!body || !body.startsWith('ttvid_') || !global.tiktokDownloads) return;
     
     const downloadData = global.tiktokDownloads.get(body);
     if (!downloadData || downloadData.type !== 'video') return;
 
     try {
-        const processingMsg = await reply(`⏳ *Downloading video...*`);
+        await reply(`⏳ *Downloading video...*`);
         
         const videoBuffer = await getBuffer(downloadData.url);
-        
-        await conn.sendMessage(from, { delete: processingMsg.key });
         
         await conn.sendMessage(from, {
             video: videoBuffer,
@@ -264,8 +260,10 @@ cmd({
             }
         }, { quoted: mek });
 
-        // Clean up
-        global.tiktokDownloads.delete(body);
+        // Clean up after 5 minutes
+        setTimeout(() => {
+            global.tiktokDownloads.delete(body);
+        }, 300000);
 
     } catch (error) {
         console.error("Video download error:", error);
@@ -273,23 +271,22 @@ cmd({
     }
 });
 
+// Handle Button Mode Responses - Music
 cmd({
-    pattern: "tt_music_",
+    pattern: "ttmus_",
     on: "body",
     dontAddCommandList: true,
     filename: __filename
 }, async (conn, mek, m, { from, reply, body }) => {
-    if (!body || !body.startsWith('tt_music_') || !global.tiktokDownloads) return;
+    if (!body || !body.startsWith('ttmus_') || !global.tiktokDownloads) return;
     
     const downloadData = global.tiktokDownloads.get(body);
     if (!downloadData || downloadData.type !== 'music') return;
 
     try {
-        const processingMsg = await reply(`⏳ *Downloading music...*`);
+        await reply(`⏳ *Downloading music...*`);
         
         const musicBuffer = await getBuffer(downloadData.url);
-        
-        await conn.sendMessage(from, { delete: processingMsg.key });
         
         // Send as audio
         await conn.sendMessage(from, {
@@ -306,8 +303,10 @@ cmd({
             caption: `🎵 *TikTok Music*\n\n🎶 ${downloadData.title || 'Unknown'}\n👤 ${downloadData.author}\n\n📥 Downloaded via ${config.BOT_NAME}`
         }, { quoted: mek });
 
-        // Clean up
-        global.tiktokDownloads.delete(body);
+        // Clean up after 5 minutes
+        setTimeout(() => {
+            global.tiktokDownloads.delete(body);
+        }, 300000);
 
     } catch (error) {
         console.error("Music download error:", error);
