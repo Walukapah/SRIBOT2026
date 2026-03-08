@@ -15,7 +15,6 @@ async (conn, mek, m, { from, sender, args, q, reply, isMe }) => {
         const botNumber = conn.user.id.split(':')[0];
         
         // STRICT CHECK: Only allow if sender is the bot itself (fromMe check)
-        // isMe is true when message is from the bot number itself
         if (!isMe) {
             return reply(`❌ *Access Denied*\n\nThis command can only be used by the bot number itself.\nYou cannot use this command from another number.`);
         }
@@ -30,7 +29,8 @@ async (conn, mek, m, { from, sender, args, q, reply, isMe }) => {
                 `• *.config reset* - Reset to defaults\n` +
                 `• *.config list* - List all available keys\n\n` +
                 `Example:\n` +
-                `*.config set AUTO_READ_STATUS false*`);
+                `*.config set MESSAGE_TYPE text*\n` +
+                `*.config set MESSAGE_TYPE button*`);
         }
         
         // Get current config for this bot number
@@ -47,7 +47,7 @@ async (conn, mek, m, { from, sender, args, q, reply, isMe }) => {
                 const importantKeys = [
                     'PREFIX', 'MODE', 'BOT_NAME', 'AUTO_READ_STATUS', 'AUTO_REACT_STATUS',
                     'AUTO_REACT_STATUS_EMOJI', 'ANTI_DELETE', 'READ_MESSAGE',
-                    'MENU_TYPE', 'MENU_FONT', 'AUTO_RECORDING'
+                    'MESSAGE_TYPE', 'AUTO_RECORDING'
                 ];
                 
                 importantKeys.forEach(key => {
@@ -70,7 +70,7 @@ async (conn, mek, m, { from, sender, args, q, reply, isMe }) => {
             case 'set':
             case 'update':
                 if (args.length < 3) {
-                    return reply(`❌ Please provide key and value\nExample: *.config set AUTO_READ_STATUS false*`);
+                    return reply(`❌ Please provide key and value\nExample: *.config set MESSAGE_TYPE text*`);
                 }
                 
                 const key = args[1].toUpperCase();
@@ -88,6 +88,15 @@ async (conn, mek, m, { from, sender, args, q, reply, isMe }) => {
                 else if (!isNaN(value)) parsedValue = Number(value);
                 else if (value.startsWith('[') && value.endsWith(']')) {
                     try { parsedValue = JSON.parse(value); } catch(e) {}
+                }
+                
+                // Special validation for MESSAGE_TYPE
+                if (key === 'MESSAGE_TYPE') {
+                    const validTypes = ['text', 'button'];
+                    if (!validTypes.includes(parsedValue.toLowerCase())) {
+                        return reply(`❌ Invalid MESSAGE_TYPE. Use: text or button`);
+                    }
+                    parsedValue = parsedValue.toLowerCase();
                 }
                 
                 // Update config for BOT NUMBER ONLY
@@ -191,4 +200,40 @@ async (conn, mek, m, { from, sender, args, reply, isMe }) => {
         return reply(`✅ *Prefix changed to: ${newPrefix}*\nBot: ${botNumber}\nChanges saved to GitHub`);
     }
     reply(`❌ Failed to update prefix`);
+});
+
+// NEW: Quick command to change message type
+cmd({
+    pattern: "messagetype",
+    alias: ["msgtype", "menutype"],
+    desc: "Change message display type. Usage: .messagetype text OR .messagetype button",
+    category: "owner",
+    react: "📋",
+    filename: __filename,
+    fromMe: true
+},
+async (conn, mek, m, { from, sender, args, reply, isMe }) => {
+    const botNumber = conn.user.id.split(':')[0];
+    
+    // STRICT CHECK: Only bot number can use this
+    if (!isMe) {
+        return reply(`❌ This command can only be used by the bot number itself.`);
+    }
+    
+    const msgType = args[0]?.toLowerCase();
+    
+    if (!['text', 'button'].includes(msgType)) {
+        return reply(`❌ Invalid type. Use: text or button\n\n` +
+            `*text* - All messages in text format\n` +
+            `*button* - Interactive button messages`);
+    }
+    
+    const success = await updateConfig(botNumber, { MESSAGE_TYPE: msgType });
+    if (success) {
+        return reply(`✅ *Message type changed to: ${msgType}*\n\n` +
+            `Bot: ${botNumber}\n` +
+            `Menu will now display as: ${msgType.toUpperCase()}\n` +
+            `Changes saved to GitHub ✅`);
+    }
+    reply(`❌ Failed to update message type`);
 });
