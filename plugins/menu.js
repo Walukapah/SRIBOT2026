@@ -49,6 +49,23 @@ function getActualUserNumber(mek) {
     return number;
 }
 
+// Helper to get display name for user
+function getDisplayName(mek, pushname) {
+    // If pushname is available and not empty, use it
+    if (pushname && pushname !== 'Sin Nombre' && pushname !== 'undefined') {
+        return pushname;
+    }
+    
+    // Try to get from mek.pushName
+    if (mek.pushName && mek.pushName !== 'Sin Nombre') {
+        return mek.pushName;
+    }
+    
+    // Fallback to user number
+    const userNumber = getActualUserNumber(mek);
+    return userNumber ? `@${userNumber}` : '@user';
+}
+
 // Main Menu Command - Supports both TEXT and BUTTON modes
 cmd({
     pattern: "menu",
@@ -65,13 +82,17 @@ cmd({
         const uptime = runtime(process.uptime());
         const usedRam = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
         const totalRam = (process.memoryUsage().heapTotal / 1024 / 1024).toFixed(2);
-        const messageType = config.MESSAGE_TYPE || 'button'; // Get MESSAGE_TYPE from config
+        const messageType = config.MESSAGE_TYPE || 'button';
+        
+        // Get proper display name
+        const displayName = getDisplayName(mek, pushname);
+        const userNumber = sender.split('@')[0];
         
         // Common menu data
-        const headerText = `👋 *ʜɪ* @${sender.split('@')[0]}\n\n` +
+        const headerText = `👋 *ʜɪ* ${displayName}\n\n` +
             `*╭─「 BOT'S MENU 」*\n` +
             `*│*👾 *Bot*: *${botName}*\n` +
-            `*│*👤 *User*: @${sender.split('@')[0]}\n` +
+            `*│*👤 *User*: ${displayName}\n` +
             `*│*☎️ *Owners*: *waluka⚡*\n` +
             `*│*⏰ *Uptime*: ${uptime}\n` +
             `*│*📂 *Ram*: ${usedRam}MB / ${totalRam}MB\n` +
@@ -103,7 +124,18 @@ cmd({
             await btn.setImage(menuImg);
             btn.setTitle(`${botName} MENU`);
             
-            const bodyText = headerText + `🎀 Ξ *Select a Command List:* Ξ`;
+            // FIXED: Use display name instead of @mention in body
+            // Button messages don't support mentions in body text properly
+            const bodyText = `👋 *ʜɪ* ${displayName}\n\n` +
+                `*╭─「 BOT'S MENU 」*\n` +
+                `*│*👾 *Bot*: *${botName}*\n` +
+                `*│*👤 *User*: ${displayName}\n` +
+                `*│*☎️ *Owners*: *waluka⚡*\n` +
+                `*│*⏰ *Uptime*: ${uptime}\n` +
+                `*│*📂 *Ram*: ${usedRam}MB / ${totalRam}MB\n` +
+                `*│*✒️ *Prefix*: ${prefix}\n` +
+                `╰──────────●●►\n\n` +
+                `🎀 Ξ *Select a Command List:* Ξ`;
             
             btn.setBody(bodyText);
             btn.setFooter(`© ${botName} v${config.VERSION}`);
@@ -188,12 +220,13 @@ cmd({
     desc: "Show owner commands",
     category: "main",
     filename: __filename
-}, async (conn, mek, m, { from, reply, sender }) => {
+}, async (conn, mek, m, { from, reply, sender, pushname }) => {
     const userNumber = getActualUserNumber(mek);
     const isOwner = checkIsOwner(config, userNumber);
     
     if (!isOwner) {
-        return reply(`⛔ *This command is only for owners!*`);
+        const displayName = getDisplayName(mek, pushname);
+        return reply(`⛔ *This command is only for owners!*\n\nUser: ${displayName}`);
     }
     
     const prefix = config.PREFIX;
@@ -260,7 +293,7 @@ cmd({
     desc: "Show settings commands",
     category: "main",
     filename: __filename
-}, async (conn, mek, m, { from, reply }) => {
+}, async (conn, mek, m, { from, reply, pushname }) => {
     const botNumber = conn.user.id.split(':')[0];
     const userNumber = getActualUserNumber(mek);
     
@@ -270,7 +303,8 @@ cmd({
     const isBotItself = cleanUser === cleanBot || cleanUser.endsWith(cleanBot) || mek.key.fromMe;
     
     if (!isBotItself) {
-        return reply(`⛔ *Settings commands are restricted to bot number only!*`);
+        const displayName = getDisplayName(mek, pushname);
+        return reply(`⛔ *Settings commands are restricted to bot number only!*\n\nUser: ${displayName}`);
     }
     
     const prefix = config.PREFIX;
@@ -306,11 +340,12 @@ cmd({
     on: "body",
     dontAddCommandList: true,
     filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
+}, async (conn, mek, m, { from, reply, body, pushname }) => {
     if (body !== "download_cmd") return;
     
     const prefix = config.PREFIX;
     const botName = config.BOT_NAME;
+    const displayName = getDisplayName(mek, pushname);
     
     const downloadMenu = `*╭─「 📥 DOWNLOAD COMMANDS 」*\n` +
         `*│*\n` +
@@ -337,11 +372,12 @@ cmd({
     on: "body",
     dontAddCommandList: true,
     filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
+}, async (conn, mek, m, { from, reply, body, pushname }) => {
     if (body !== "search_cmd") return;
     
     const prefix = config.PREFIX;
     const botName = config.BOT_NAME;
+    const displayName = getDisplayName(mek, pushname);
     
     const searchMenu = `*╭─「 🔍 SEARCH COMMANDS 」*\n` +
         `*│*\n` +
@@ -368,19 +404,21 @@ cmd({
     on: "body",
     dontAddCommandList: true,
     filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
+}, async (conn, mek, m, { from, reply, body, pushname }) => {
     if (body !== "owner_cmd") return;
     
     // FIXED: Get actual user number using remoteJidAlt (handles LID)
     const userNumber = getActualUserNumber(mek);
+    const displayName = getDisplayName(mek, pushname);
     
     console.log("[OWNER_CMD] mek.key:", JSON.stringify(mek.key));
     console.log("[OWNER_CMD] Extracted user number:", userNumber);
+    console.log("[OWNER_CMD] Display name:", displayName);
     
     const isOwner = checkIsOwner(config, userNumber);
     
     if (!isOwner) {
-        return reply(`⛔ *This command is only for owners!*\n\nYour number: ${userNumber}\nConfig owners: ${JSON.stringify(config.OWNER_NUMBER)}`);
+        return reply(`⛔ *This command is only for owners!*\n\nUser: ${displayName}\nNumber: ${userNumber}`);
     }
     
     const prefix = config.PREFIX;
@@ -414,11 +452,12 @@ cmd({
     on: "body",
     dontAddCommandList: true,
     filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
+}, async (conn, mek, m, { from, reply, body, pushname }) => {
     if (body !== "other_cmd") return;
     
     const prefix = config.PREFIX;
     const botName = config.BOT_NAME;
+    const displayName = getDisplayName(mek, pushname);
     
     const otherMenu = `*╭─「 🛠️ OTHER COMMANDS 」*\n` +
         `*│*\n` +
@@ -451,15 +490,17 @@ cmd({
     on: "body",
     dontAddCommandList: true,
     filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
+}, async (conn, mek, m, { from, reply, body, pushname }) => {
     if (body !== "setting_cmd") return;
     
     // BOT NUMBER ONLY - Check if message is from bot itself
     const botNumber = conn.user.id.split(':')[0];
     const userNumber = getActualUserNumber(mek);
+    const displayName = getDisplayName(mek, pushname);
     
     console.log("[SETTING_CMD] Bot number:", botNumber);
     console.log("[SETTING_CMD] User number:", userNumber);
+    console.log("[SETTING_CMD] Display name:", displayName);
     
     // STRICT CHECK: Only allow if user is the bot number itself
     const cleanBot = botNumber.replace(/[^0-9]/g, '');
@@ -467,7 +508,7 @@ cmd({
     const isBotItself = cleanUser === cleanBot || cleanUser.endsWith(cleanBot) || mek.key.fromMe;
     
     if (!isBotItself) {
-        return reply(`⛔ *Settings commands are restricted to bot number only!*\n\nYour number: ${userNumber}\nAllowed: ${botNumber}`);
+        return reply(`⛔ *Settings commands are restricted to bot number only!*\n\nUser: ${displayName}\nYour number: ${userNumber}\nAllowed: ${botNumber}`);
     }
     
     const prefix = config.PREFIX;
