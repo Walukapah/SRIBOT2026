@@ -28,7 +28,9 @@ const baseConfig = {
     MEDIA_URL: process.env.MEDIA_URL || "https://whatsapp.com/channel/0029VaAPzWX0G0XdhMbtRI2i",
     AUTO_RECORDING: process.env.AUTO_RECORDING || "false",
     ANTI_DELETE: process.env.ANTI_DELETE || "true",
-    READ_MESSAGE: process.env.READ_MESSAGE || "true"
+    READ_MESSAGE: process.env.READ_MESSAGE || "true",
+    // NEW: MESSAGE_TYPE - "text" or "button"
+    MESSAGE_TYPE: process.env.MESSAGE_TYPE || "button"
 };
 
 // User-specific configs storage (in memory)
