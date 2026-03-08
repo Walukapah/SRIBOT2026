@@ -238,16 +238,15 @@ cmd({
             btn.addSelection("📥 Select Download Option");
             btn.makeSection("⬇️ Download Options", "Choose what to download");
 
-            // Generate unique IDs with timestamp and random number
-            const timestamp = Date.now();
-            const random = Math.floor(Math.random() * 1000);
+            // Use a base ID that will be stored and matched
+            const baseId = Date.now().toString();
 
-            const videoHDId = `ttvidhd_${timestamp}_${random}`;
-            const videoHDDocumentId = `ttvidhddoc_${timestamp}_${random}`;
-            const videoWMId = `ttvidwm_${timestamp}_${random}`;
-            const videoWMDocumentId = `ttvidwmdoc_${timestamp}_${random}`;
-            const audioId = `ttaud_${timestamp}_${random}`;
-            const audioDocumentId = `ttauddoc_${timestamp}_${random}`;
+            const videoHDId = `ttvidhd_${baseId}`;
+            const videoHDDocumentId = `ttvidhddoc_${baseId}`;
+            const videoWMId = `ttvidwm_${baseId}`;
+            const videoWMDocumentId = `ttvidwmdoc_${baseId}`;
+            const audioId = `ttaud_${baseId}`;
+            const audioDocumentId = `ttauddoc_${baseId}`;
 
             btn.makeRow("🎬", "No WM Video HD", "High quality no watermark", videoHDId);
             btn.makeRow("📄", "No WM Video HD (Doc)", "HD video as document", videoHDDocumentId);
@@ -261,13 +260,11 @@ cmd({
 
             const sentMsg = await btn.send(from, conn, mek);
 
-            console.log(`[TIKTOK] Button message sent with ID: ${sentMsg?.key?.id}`);
+            console.log(`[TIKTOK] Button message sent. Base ID: ${baseId}`);
             console.log(`[TIKTOK] Video HD ID: ${videoHDId}`);
             console.log(`[TIKTOK] Audio ID: ${audioId}`);
 
-            // Store download data for button response handling
-            const messageId = sentMsg?.key?.id || mek.key.id;
-
+            // Store download data for button response handling - USING SAME BASE ID
             const downloadData = {
                 videoHD: {
                     type: 'video',
@@ -278,7 +275,7 @@ cmd({
                     author: author.nickname,
                     caption: videoInfo.caption,
                     username: author.username,
-                    parentMsgId: messageId
+                    baseId: baseId
                 },
                 videoHDDocument: {
                     type: 'video',
@@ -289,7 +286,7 @@ cmd({
                     author: author.nickname,
                     caption: videoInfo.caption,
                     username: author.username,
-                    parentMsgId: messageId
+                    baseId: baseId
                 },
                 videoWM: {
                     type: 'video',
@@ -300,7 +297,7 @@ cmd({
                     author: author.nickname,
                     caption: videoInfo.caption,
                     username: author.username,
-                    parentMsgId: messageId
+                    baseId: baseId
                 },
                 videoWMDocument: {
                     type: 'video',
@@ -311,7 +308,7 @@ cmd({
                     author: author.nickname,
                     caption: videoInfo.caption,
                     username: author.username,
-                    parentMsgId: messageId
+                    baseId: baseId
                 },
                 audio: {
                     type: 'audio',
@@ -321,7 +318,7 @@ cmd({
                     author: author.nickname,
                     title: music.title,
                     musicAuthor: music.author,
-                    parentMsgId: messageId
+                    baseId: baseId
                 },
                 audioDocument: {
                     type: 'audio',
@@ -331,7 +328,7 @@ cmd({
                     author: author.nickname,
                     title: music.title,
                     musicAuthor: music.author,
-                    parentMsgId: messageId
+                    baseId: baseId
                 }
             };
 
@@ -343,11 +340,13 @@ cmd({
             global.tiktokDownloads.set(audioId, downloadData.audio);
             global.tiktokDownloads.set(audioDocumentId, downloadData.audioDocument);
 
-            // Also store reference to all IDs for this message
-            global.tiktokDownloads.set(`msg_${messageId}`, {
-                ids: [videoHDId, videoHDDocumentId, videoWMId, videoWMDocumentId, audioId, audioDocumentId],
-                timestamp: Date.now()
-            });
+            // Also store by baseId for easier lookup
+            global.tiktokDownloads.set(`base_${baseId}`, downloadData);
+
+            console.log(`[TIKTOK] Stored download data for IDs:`);
+            console.log(`[TIKTOK] - ${videoHDId}: ${global.tiktokDownloads.has(videoHDId)}`);
+            console.log(`[TIKTOK] - ${audioId}: ${global.tiktokDownloads.has(audioId)}`);
+            console.log(`[TIKTOK] Total stored: ${global.tiktokDownloads.size} items`);
         }
 
     } catch (error) {
@@ -356,7 +355,7 @@ cmd({
     }
 });
 
-// Universal Button Handler - handles all button responses
+// Universal Button Handler - handles all TikTok button responses
 cmd({
     pattern: "tt",
     on: "body",
@@ -364,23 +363,32 @@ cmd({
     filename: __filename
 }, async (conn, mek, m, { from, reply, body }) => {
     // Check if this is a TikTok button response
-    if (!body || !global.tiktokDownloads) return;
+    if (!body || !global.tiktokDownloads) {
+        console.log(`[TIKTOK HANDLER] No body or downloads map. Body: ${body}, Map exists: ${!!global.tiktokDownloads}`);
+        return;
+    }
 
     // Check if body starts with any of our TikTok button IDs
     const tiktokPatterns = ['ttvidhd_', 'ttvidhddoc_', 'ttvidwm_', 'ttvidwmdoc_', 'ttaud_', 'ttauddoc_'];
     const isTikTokButton = tiktokPatterns.some(pattern => body.startsWith(pattern));
 
-    if (!isTikTokButton) return;
+    if (!isTikTokButton) {
+        console.log(`[TIKTOK HANDLER] Body does not match TikTok patterns: ${body}`);
+        return;
+    }
 
-    console.log(`[TIKTOK BUTTON] Received button response: ${body}`);
+    console.log(`[TIKTOK HANDLER] Processing button response: ${body}`);
+    console.log(`[TIKTOK HANDLER] Available keys in map: ${Array.from(global.tiktokDownloads.keys()).join(', ')}`);
 
     const downloadData = global.tiktokDownloads.get(body);
     if (!downloadData) {
-        console.log(`[TIKTOK BUTTON] No download data found for ID: ${body}`);
+        console.log(`[TIKTOK HANDLER] No download data found for ID: ${body}`);
         return reply(`❌ Download data expired or not found. Please try the command again.`);
     }
 
     try {
+        console.log(`[TIKTOK HANDLER] Found download data: ${JSON.stringify(downloadData)}`);
+
         if (downloadData.type === 'video') {
             if (downloadData.mode === 'document') {
                 // Video as Document
@@ -389,8 +397,8 @@ cmd({
                 await conn.sendMessage(from, {
                     document: { url: downloadData.url },
                     mimetype: 'video/mp4',
-                    fileName: `TikTok_${downloadData.username}_${Date.now()}_${downloadData.quality}_${downloadData.mode === 'document' ? 'NoWM' : 'WM'}.mp4`,
-                    caption: `🎬 *TikTok Video (${downloadData.quality} - ${downloadData.mode === 'document' ? 'No Watermark' : 'With Watermark'} - Document)*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                    fileName: `TikTok_${downloadData.username}_${Date.now()}_${downloadData.quality}_${downloadData.quality === 'WM' ? 'WM' : 'NoWM'}.mp4`,
+                    caption: `🎬 *TikTok Video (${downloadData.quality} - ${downloadData.quality === 'WM' ? 'With Watermark' : 'No Watermark'} - Document)*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
                 }, { quoted: mek });
             } else {
                 // Normal Video
@@ -427,10 +435,14 @@ cmd({
         // Clean up after 5 minutes
         setTimeout(() => {
             global.tiktokDownloads.delete(body);
+            // Also clean up base data if exists
+            if (downloadData.baseId) {
+                global.tiktokDownloads.delete(`base_${downloadData.baseId}`);
+            }
         }, 300000);
 
     } catch (error) {
-        console.error("[TIKTOK BUTTON ERROR]", error);
+        console.error("[TIKTOK HANDLER ERROR]", error);
         reply(`❌ *Failed to download!*\n\n${error.message}`);
     }
 });
