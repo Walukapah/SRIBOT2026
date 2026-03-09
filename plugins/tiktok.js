@@ -3,11 +3,56 @@ const { Button } = require('../lib/button');
 const config = require('../config');
 const { getBuffer, fetchJson } = require('../lib/functions');
 
-// Store TikTok downloads globally with message ID mapping
+// Store TikTok downloads globally
 if (!global.tiktokDownloads) global.tiktokDownloads = new Map();
 if (!global.tiktokReplyHandlers) global.tiktokReplyHandlers = new Map();
 
-// TikTok Download Command
+// Helper function to handle TikTok downloads
+async function handleTikTokDownload(conn, mek, from, reply, downloadData) {
+    try {
+        if (downloadData.type === 'video') {
+            if (downloadData.mode === 'document') {
+                await reply(`⏳ *Downloading ${downloadData.quality} video as document...*`);
+                await conn.sendMessage(from, {
+                    document: { url: downloadData.url },
+                    mimetype: 'video/mp4',
+                    fileName: `TikTok_${downloadData.username}_${Date.now()}_${downloadData.quality}_${downloadData.quality === 'WM' ? 'WM' : 'NoWM'}.mp4`,
+                    caption: `🎬 *TikTok Video (${downloadData.quality} - ${downloadData.quality === 'WM' ? 'With Watermark' : 'No Watermark'} - Document)*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                }, { quoted: mek });
+            } else {
+                await reply(`⏳ *Downloading ${downloadData.quality} video...*`);
+                await conn.sendMessage(from, {
+                    video: { url: downloadData.url },
+                    caption: `🎬 *TikTok Video (${downloadData.quality} - ${downloadData.quality === 'WM' ? 'With Watermark' : 'No Watermark'})*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                }, { quoted: mek });
+            }
+        } else if (downloadData.type === 'audio') {
+            if (downloadData.mode === 'document') {
+                await reply(`⏳ *Downloading audio as document...*`);
+                await conn.sendMessage(from, {
+                    document: { url: downloadData.url },
+                    mimetype: 'audio/mpeg',
+                    fileName: `TikTok_${downloadData.title || 'Audio'}_${Date.now()}.mp3`,
+                    caption: `🎵 *TikTok Music*\n\n🎶 ${downloadData.title || 'Unknown'}\n👤 ${downloadData.musicAuthor || 'Unknown'}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                }, { quoted: mek });
+            } else {
+                await reply(`⏳ *Downloading audio...*`);
+                await conn.sendMessage(from, {
+                    audio: { url: downloadData.url },
+                    mimetype: 'audio/mpeg',
+                    ptt: false
+                }, { quoted: mek });
+            }
+        }
+        return true;
+    } catch (error) {
+        console.error('[TIKTOK DOWNLOAD ERROR]', error);
+        await reply(`❌ *Failed to download!*\n\n${error.message}`);
+        return false;
+    }
+}
+
+// Main TikTok Command
 cmd({
     pattern: "tiktok",
     alias: ["tt", "ttdl", "tiktokdl"],
@@ -21,27 +66,16 @@ cmd({
         const botName = config.BOT_NAME;
         const messageType = config.MESSAGE_TYPE || 'button';
 
-        // Check if URL is provided
         if (!q || (!q.includes('tiktok.com') && !q.includes('vt.tiktok'))) {
-            return reply(`❌ *Please provide a valid TikTok URL!*\n\n*Usage:* ${prefix}tiktok <video-url>\n\n*Example:*\n${prefix}tiktok https://vt.tiktok.com/ZSuYLQkMm/`);
+            return reply(`❌ *Please provide a valid TikTok URL!*\n\n*Usage:* ${prefix}tiktok <video-url>`);
         }
 
-        // Validate URL format
         const tiktokUrl = q.trim();
-        const urlRegex = /(https?:\/\/)?(www\.)?(tiktok\.com|vt\.tiktok\.com)\/[^\s]+/;
-
-        if (!urlRegex.test(tiktokUrl)) {
-            return reply(`❌ *Invalid TikTok URL!*\n\nPlease provide a valid TikTok video link.`);
-        }
-
-        // Send processing message
         await reply(`⏳ *Downloading TikTok video...*\n\n🔄 Please wait while I fetch the video...`);
 
-        // Call API
         const apiUrl = `https://sri-api.vercel.app/download/tiktokdl?url=${encodeURIComponent(tiktokUrl)}`;
         const response = await fetchJson(apiUrl);
 
-        // Check API response
         if (!response || !response.status || !response.result || !response.result.data) {
             return reply(`❌ *Failed to fetch video!*\n\nThe video might be private, deleted, or the API is temporarily unavailable.`);
         }
@@ -53,7 +87,6 @@ cmd({
         const downloadLinks = data.download_links;
         const music = data.music;
 
-        // Prepare caption/info text
         const infoText = `🎵 *TikTok Video Info*\n\n` +
             `👤 *Author:* ${author.nickname} (@${author.username})\n` +
             `📝 *Caption:* ${videoInfo.caption || 'No caption'}\n` +
@@ -67,9 +100,8 @@ cmd({
             `   💾 ${stats.saves} Saves\n\n` +
             `🎶 *Music:* ${music.title} - ${music.author}`;
 
-        // Check message type
         if (messageType === 'text') {
-            // ========== TEXT MODE ==========
+            // TEXT MODE
             const infoMsg = infoText + `\n\n📥 *Reply with your choice:*\n` +
                 `🎬 *1.1* - No Watermark Video HD\n` +
                 `🎬 *1.2* - No Watermark Video HD (Document)\n` +
@@ -95,9 +127,6 @@ cmd({
             }, { quoted: mek });
 
             const messageID = sentMsg.key.id;
-            await conn.sendMessage(from, { react: { text: '🎵', key: sentMsg.key } });
-
-            // Store download data
             global.tiktokDownloads.set(messageID, {
                 videoUrlHD: downloadLinks.no_watermark.hd,
                 videoUrlSD: downloadLinks.no_watermark.sd,
@@ -111,111 +140,57 @@ cmd({
                 username: author.username
             });
 
-            // Setup reply handler for this specific message
+            // Reply handler for text mode
             const replyHandler = async (messageUpdate) => {
                 try {
                     const mekInfo = messageUpdate?.messages[0];
                     if (!mekInfo?.message) return;
 
-                    const messageType = mekInfo?.message?.conversation || mekInfo?.message?.extendedTextMessage?.text;
+                    const msgText = mekInfo?.message?.conversation || mekInfo?.message?.extendedTextMessage?.text;
                     const isReplyToSentMsg = mekInfo?.message?.extendedTextMessage?.contextInfo?.stanzaId === messageID;
 
-                    if (!isReplyToSentMsg) return;
+                    if (!isReplyToSentMsg || !msgText) return;
 
-                    let userReply = messageType.trim();
-                    let msg;
-
-                    // Remove handler after first valid reply
-                    conn.ev.off('messages.upsert', replyHandler);
-                    global.tiktokReplyHandlers.delete(messageID);
+                    let userReply = msgText.trim();
+                    let downloadData = null;
 
                     switch(userReply) {
                         case "1.1":
-                            // No Watermark HD Video
-                            msg = await conn.sendMessage(from, { text: "⏳ Downloading HD Video (No Watermark)..." }, { quoted: mekInfo });
-                            await conn.sendMessage(from, {
-                                video: { url: downloadLinks.no_watermark.hd },
-                                caption: `🎬 *TikTok Video (HD - No Watermark)*\n\n👤 ${author.nickname}\n📝 ${videoInfo.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
-                            }, { quoted: mekInfo });
-                            await conn.sendMessage(from, { text: '✅ HD Video Downloaded ✅', edit: msg.key });
-                            return;
-
+                            downloadData = { type: 'video', quality: 'HD', mode: 'normal', url: downloadLinks.no_watermark.hd, coverImage: videoInfo.cover_image, author: author.nickname, caption: videoInfo.caption, username: author.username };
+                            break;
                         case "1.2":
-                            // No Watermark HD Video as Document
-                            msg = await conn.sendMessage(from, { text: "⏳ Downloading HD Video as Document..." }, { quoted: mekInfo });
-                            await conn.sendMessage(from, {
-                                document: { url: downloadLinks.no_watermark.hd },
-                                mimetype: 'video/mp4',
-                                fileName: `TikTok_${author.username}_${Date.now()}_HD_NoWM.mp4`,
-                                caption: `🎬 *TikTok Video (HD - No Watermark - Document)*\n\n👤 ${author.nickname}\n📝 ${videoInfo.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
-                            }, { quoted: mekInfo });
-                            await conn.sendMessage(from, { text: '✅ HD Video (Document) Downloaded ✅', edit: msg.key });
-                            return;
-
+                            downloadData = { type: 'video', quality: 'HD', mode: 'document', url: downloadLinks.no_watermark.hd, coverImage: videoInfo.cover_image, author: author.nickname, caption: videoInfo.caption, username: author.username };
+                            break;
                         case "1.3":
-                            // With Watermark Video
-                            msg = await conn.sendMessage(from, { text: "⏳ Downloading Video (With Watermark)..." }, { quoted: mekInfo });
-                            await conn.sendMessage(from, {
-                                video: { url: downloadLinks.with_watermark.url },
-                                caption: `🎬 *TikTok Video (With Watermark)*\n\n👤 ${author.nickname}\n📝 ${videoInfo.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
-                            }, { quoted: mekInfo });
-                            await conn.sendMessage(from, { text: '✅ Video (With Watermark) Downloaded ✅', edit: msg.key });
-                            return;
-
+                            downloadData = { type: 'video', quality: 'WM', mode: 'normal', url: downloadLinks.with_watermark.url, coverImage: videoInfo.cover_image, author: author.nickname, caption: videoInfo.caption, username: author.username };
+                            break;
                         case "1.4":
-                            // With Watermark Video as Document
-                            msg = await conn.sendMessage(from, { text: "⏳ Downloading Video as Document (With Watermark)..." }, { quoted: mekInfo });
-                            await conn.sendMessage(from, {
-                                document: { url: downloadLinks.with_watermark.url },
-                                mimetype: 'video/mp4',
-                                fileName: `TikTok_${author.username}_${Date.now()}_WM.mp4`,
-                                caption: `🎬 *TikTok Video (With Watermark - Document)*\n\n👤 ${author.nickname}\n📝 ${videoInfo.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
-                            }, { quoted: mekInfo });
-                            await conn.sendMessage(from, { text: '✅ Video Document (With Watermark) Downloaded ✅', edit: msg.key });
-                            return;
-
+                            downloadData = { type: 'video', quality: 'WM', mode: 'document', url: downloadLinks.with_watermark.url, coverImage: videoInfo.cover_image, author: author.nickname, caption: videoInfo.caption, username: author.username };
+                            break;
                         case "2.1":
-                            // Audio
-                            msg = await conn.sendMessage(from, { text: "⏳ Downloading Audio..." }, { quoted: mekInfo });
-                            await conn.sendMessage(from, {
-                                audio: { url: music.play_url },
-                                mimetype: 'audio/mpeg',
-                                ptt: false
-                            }, { quoted: mekInfo });
-                            await conn.sendMessage(from, { text: '✅ Audio Downloaded ✅', edit: msg.key });
-                            return;
-
+                            downloadData = { type: 'audio', mode: 'normal', url: music.play_url, coverImage: videoInfo.cover_image, author: author.nickname, title: music.title, musicAuthor: music.author };
+                            break;
                         case "2.2":
-                            // Audio as Document
-                            msg = await conn.sendMessage(from, { text: "⏳ Downloading Audio as Document..." }, { quoted: mekInfo });
-                            await conn.sendMessage(from, {
-                                document: { url: music.play_url },
-                                mimetype: 'audio/mpeg',
-                                fileName: `TikTok_${music.title || 'Audio'}_${Date.now()}.mp3`,
-                                caption: `🎵 *TikTok Music*\n\n🎶 ${music.title || 'Unknown'}\n👤 ${music.author || 'Unknown'}\n\n📥 Downloaded via ${config.BOT_NAME}`
-                            }, { quoted: mekInfo });
-                            await conn.sendMessage(from, { text: '✅ Audio Document Downloaded ✅', edit: msg.key });
-                            return;
-
+                            downloadData = { type: 'audio', mode: 'document', url: music.play_url, coverImage: videoInfo.cover_image, author: author.nickname, title: music.title, musicAuthor: music.author };
+                            break;
                         default:
-                            return await conn.sendMessage(from, { 
-                                text: "❌ Invalid choice! Please reply with one of the provided options (1.1, 1.2, 1.3, 1.4, 2.1, or 2.2)." 
-                            }, { quoted: mekInfo });
+                            return;
                     }
+
+                    conn.ev.off('messages.upsert', replyHandler);
+                    global.tiktokReplyHandlers.delete(messageID);
+                    await handleTikTokDownload(conn, mekInfo, from, 
+                        (text) => conn.sendMessage(from, { text }, { quoted: mekInfo }), 
+                        downloadData);
 
                 } catch (error) {
                     console.error('[TIKTOK REPLY ERROR]', error);
-                    await conn.sendMessage(from, { 
-                        text: `❌ *An error occurred while processing:* ${error.message || "Error!"}` 
-                    }, { quoted: mekInfo });
                 }
             };
 
-            // Store and register handler
             global.tiktokReplyHandlers.set(messageID, replyHandler);
             conn.ev.on('messages.upsert', replyHandler);
 
-            // Auto-remove handler after 3 minutes
             setTimeout(() => {
                 if (global.tiktokReplyHandlers.has(messageID)) {
                     conn.ev.off('messages.upsert', replyHandler);
@@ -225,20 +200,16 @@ cmd({
             }, 180000);
 
         } else {
-            // ========== BUTTON MODE ==========
+            // BUTTON MODE
             const btn = new Button();
-
-            // Set cover image
             await btn.setImage(videoInfo.cover_image);
             btn.setTitle("🎵 TikTok Downloader");
             btn.setBody(infoText);
             btn.setFooter(`Powered by ${botName} 🇱🇰`);
 
-            // Add selection for download options
             btn.addSelection("📥 Select Download Option");
             btn.makeSection("⬇️ Download Options", "Choose what to download");
 
-            // Use a base ID that will be stored and matched
             const baseId = Date.now().toString();
 
             const videoHDId = `ttvidhd_${baseId}`;
@@ -254,99 +225,21 @@ cmd({
             btn.makeRow("📄", "With Watermark (Doc)", "WM video as document", videoWMDocumentId);
             btn.makeRow("🎵", "Audio", "Original audio file", audioId);
             btn.makeRow("📄", "Audio (Document)", "Audio as document file", audioDocumentId);
-
-            // Add URL button to view original
             btn.addUrl("🔗 View on TikTok", tiktokUrl);
 
             const sentMsg = await btn.send(from, conn, mek);
 
             console.log(`[TIKTOK] Button message sent. Base ID: ${baseId}`);
-            console.log(`[TIKTOK] Video HD ID: ${videoHDId}`);
-            console.log(`[TIKTOK] Audio ID: ${audioId}`);
 
-            // Store download data for button response handling - USING SAME BASE ID
-            const downloadData = {
-                videoHD: {
-                    type: 'video',
-                    quality: 'HD',
-                    mode: 'normal',
-                    url: downloadLinks.no_watermark.hd,
-                    coverImage: videoInfo.cover_image,
-                    author: author.nickname,
-                    caption: videoInfo.caption,
-                    username: author.username,
-                    baseId: baseId
-                },
-                videoHDDocument: {
-                    type: 'video',
-                    quality: 'HD',
-                    mode: 'document',
-                    url: downloadLinks.no_watermark.hd,
-                    coverImage: videoInfo.cover_image,
-                    author: author.nickname,
-                    caption: videoInfo.caption,
-                    username: author.username,
-                    baseId: baseId
-                },
-                videoWM: {
-                    type: 'video',
-                    quality: 'WM',
-                    mode: 'normal',
-                    url: downloadLinks.with_watermark.url,
-                    coverImage: videoInfo.cover_image,
-                    author: author.nickname,
-                    caption: videoInfo.caption,
-                    username: author.username,
-                    baseId: baseId
-                },
-                videoWMDocument: {
-                    type: 'video',
-                    quality: 'WM',
-                    mode: 'document',
-                    url: downloadLinks.with_watermark.url,
-                    coverImage: videoInfo.cover_image,
-                    author: author.nickname,
-                    caption: videoInfo.caption,
-                    username: author.username,
-                    baseId: baseId
-                },
-                audio: {
-                    type: 'audio',
-                    mode: 'normal',
-                    url: music.play_url,
-                    coverImage: videoInfo.cover_image,
-                    author: author.nickname,
-                    title: music.title,
-                    musicAuthor: music.author,
-                    baseId: baseId
-                },
-                audioDocument: {
-                    type: 'audio',
-                    mode: 'document',
-                    url: music.play_url,
-                    coverImage: videoInfo.cover_image,
-                    author: author.nickname,
-                    title: music.title,
-                    musicAuthor: music.author,
-                    baseId: baseId
-                }
-            };
+            // Store all download data with button IDs
+            global.tiktokDownloads.set(videoHDId, { type: 'video', quality: 'HD', mode: 'normal', url: downloadLinks.no_watermark.hd, coverImage: videoInfo.cover_image, author: author.nickname, caption: videoInfo.caption, username: author.username });
+            global.tiktokDownloads.set(videoHDDocumentId, { type: 'video', quality: 'HD', mode: 'document', url: downloadLinks.no_watermark.hd, coverImage: videoInfo.cover_image, author: author.nickname, caption: videoInfo.caption, username: author.username });
+            global.tiktokDownloads.set(videoWMId, { type: 'video', quality: 'WM', mode: 'normal', url: downloadLinks.with_watermark.url, coverImage: videoInfo.cover_image, author: author.nickname, caption: videoInfo.caption, username: author.username });
+            global.tiktokDownloads.set(videoWMDocumentId, { type: 'video', quality: 'WM', mode: 'document', url: downloadLinks.with_watermark.url, coverImage: videoInfo.cover_image, author: author.nickname, caption: videoInfo.caption, username: author.username });
+            global.tiktokDownloads.set(audioId, { type: 'audio', mode: 'normal', url: music.play_url, coverImage: videoInfo.cover_image, author: author.nickname, title: music.title, musicAuthor: music.author });
+            global.tiktokDownloads.set(audioDocumentId, { type: 'audio', mode: 'document', url: music.play_url, coverImage: videoInfo.cover_image, author: author.nickname, title: music.title, musicAuthor: music.author });
 
-            // Store all data with their IDs
-            global.tiktokDownloads.set(videoHDId, downloadData.videoHD);
-            global.tiktokDownloads.set(videoHDDocumentId, downloadData.videoHDDocument);
-            global.tiktokDownloads.set(videoWMId, downloadData.videoWM);
-            global.tiktokDownloads.set(videoWMDocumentId, downloadData.videoWMDocument);
-            global.tiktokDownloads.set(audioId, downloadData.audio);
-            global.tiktokDownloads.set(audioDocumentId, downloadData.audioDocument);
-
-            // Also store by baseId for easier lookup
-            global.tiktokDownloads.set(`base_${baseId}`, downloadData);
-
-            console.log(`[TIKTOK] Stored download data for IDs:`);
-            console.log(`[TIKTOK] - ${videoHDId}: ${global.tiktokDownloads.has(videoHDId)}`);
-            console.log(`[TIKTOK] - ${audioId}: ${global.tiktokDownloads.has(audioId)}`);
-            console.log(`[TIKTOK] Total stored: ${global.tiktokDownloads.size} items`);
+            console.log(`[TIKTOK] Stored data for IDs: ${videoHDId}, ${videoHDDocumentId}, ${videoWMId}, ${videoWMDocumentId}, ${audioId}, ${audioDocumentId}`);
         }
 
     } catch (error) {
@@ -355,94 +248,103 @@ cmd({
     }
 });
 
-// Universal Button Handler - handles all TikTok button responses
+// Button Response Handlers - Each with specific pattern
 cmd({
-    pattern: "tt",
+    pattern: "ttvidhd_",
     on: "body",
     dontAddCommandList: true,
     filename: __filename
 }, async (conn, mek, m, { from, reply, body }) => {
-    // Check if this is a TikTok button response
-    if (!body || !global.tiktokDownloads) {
-        console.log(`[TIKTOK HANDLER] No body or downloads map. Body: ${body}, Map exists: ${!!global.tiktokDownloads}`);
-        return;
-    }
-
-    // Check if body starts with any of our TikTok button IDs
-    const tiktokPatterns = ['ttvidhd_', 'ttvidhddoc_', 'ttvidwm_', 'ttvidwmdoc_', 'ttaud_', 'ttauddoc_'];
-    const isTikTokButton = tiktokPatterns.some(pattern => body.startsWith(pattern));
-
-    if (!isTikTokButton) {
-        console.log(`[TIKTOK HANDLER] Body does not match TikTok patterns: ${body}`);
-        return;
-    }
-
-    console.log(`[TIKTOK HANDLER] Processing button response: ${body}`);
-    console.log(`[TIKTOK HANDLER] Available keys in map: ${Array.from(global.tiktokDownloads.keys()).join(', ')}`);
+    console.log(`[TIKTOK HANDLER ttvidhd_] Called with body: ${body}`);
+    if (!body || !global.tiktokDownloads) return;
 
     const downloadData = global.tiktokDownloads.get(body);
     if (!downloadData) {
-        console.log(`[TIKTOK HANDLER] No download data found for ID: ${body}`);
-        return reply(`❌ Download data expired or not found. Please try the command again.`);
+        console.log(`[TIKTOK HANDLER] No data found for: ${body}`);
+        return;
     }
 
-    try {
-        console.log(`[TIKTOK HANDLER] Found download data: ${JSON.stringify(downloadData)}`);
+    console.log(`[TIKTOK HANDLER] Found data, processing...`);
+    await handleTikTokDownload(conn, mek, from, reply, downloadData);
+    global.tiktokDownloads.delete(body);
+});
 
-        if (downloadData.type === 'video') {
-            if (downloadData.mode === 'document') {
-                // Video as Document
-                await reply(`⏳ *Downloading ${downloadData.quality} video as document...*`);
+cmd({
+    pattern: "ttvidhddoc_",
+    on: "body",
+    dontAddCommandList: true,
+    filename: __filename
+}, async (conn, mek, m, { from, reply, body }) => {
+    console.log(`[TIKTOK HANDLER ttvidhddoc_] Called with body: ${body}`);
+    if (!body || !global.tiktokDownloads) return;
 
-                await conn.sendMessage(from, {
-                    document: { url: downloadData.url },
-                    mimetype: 'video/mp4',
-                    fileName: `TikTok_${downloadData.username}_${Date.now()}_${downloadData.quality}_${downloadData.quality === 'WM' ? 'WM' : 'NoWM'}.mp4`,
-                    caption: `🎬 *TikTok Video (${downloadData.quality} - ${downloadData.quality === 'WM' ? 'With Watermark' : 'No Watermark'} - Document)*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
-                }, { quoted: mek });
-            } else {
-                // Normal Video
-                await reply(`⏳ *Downloading ${downloadData.quality} video...*`);
+    const downloadData = global.tiktokDownloads.get(body);
+    if (!downloadData) return;
 
-                await conn.sendMessage(from, {
-                    video: { url: downloadData.url },
-                    caption: `🎬 *TikTok Video (${downloadData.quality} - ${downloadData.quality === 'WM' ? 'With Watermark' : 'No Watermark'})*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
-                }, { quoted: mek });
-            }
-        } else if (downloadData.type === 'audio') {
-            if (downloadData.mode === 'document') {
-                // Audio as Document
-                await reply(`⏳ *Downloading audio as document...*`);
+    await handleTikTokDownload(conn, mek, from, reply, downloadData);
+    global.tiktokDownloads.delete(body);
+});
 
-                await conn.sendMessage(from, {
-                    document: { url: downloadData.url },
-                    mimetype: 'audio/mpeg',
-                    fileName: `TikTok_${downloadData.title || 'Audio'}_${Date.now()}.mp3`,
-                    caption: `🎵 *TikTok Music*\n\n🎶 ${downloadData.title || 'Unknown'}\n👤 ${downloadData.musicAuthor || 'Unknown'}\n\n📥 Downloaded via ${config.BOT_NAME}`
-                }, { quoted: mek });
-            } else {
-                // Normal Audio
-                await reply(`⏳ *Downloading audio...*`);
+cmd({
+    pattern: "ttvidwm_",
+    on: "body",
+    dontAddCommandList: true,
+    filename: __filename
+}, async (conn, mek, m, { from, reply, body }) => {
+    console.log(`[TIKTOK HANDLER ttvidwm_] Called with body: ${body}`);
+    if (!body || !global.tiktokDownloads) return;
 
-                await conn.sendMessage(from, {
-                    audio: { url: downloadData.url },
-                    mimetype: 'audio/mpeg',
-                    ptt: false
-                }, { quoted: mek });
-            }
-        }
+    const downloadData = global.tiktokDownloads.get(body);
+    if (!downloadData) return;
 
-        // Clean up after 5 minutes
-        setTimeout(() => {
-            global.tiktokDownloads.delete(body);
-            // Also clean up base data if exists
-            if (downloadData.baseId) {
-                global.tiktokDownloads.delete(`base_${downloadData.baseId}`);
-            }
-        }, 300000);
+    await handleTikTokDownload(conn, mek, from, reply, downloadData);
+    global.tiktokDownloads.delete(body);
+});
 
-    } catch (error) {
-        console.error("[TIKTOK HANDLER ERROR]", error);
-        reply(`❌ *Failed to download!*\n\n${error.message}`);
-    }
+cmd({
+    pattern: "ttvidwmdoc_",
+    on: "body",
+    dontAddCommandList: true,
+    filename: __filename
+}, async (conn, mek, m, { from, reply, body }) => {
+    console.log(`[TIKTOK HANDLER ttvidwmdoc_] Called with body: ${body}`);
+    if (!body || !global.tiktokDownloads) return;
+
+    const downloadData = global.tiktokDownloads.get(body);
+    if (!downloadData) return;
+
+    await handleTikTokDownload(conn, mek, from, reply, downloadData);
+    global.tiktokDownloads.delete(body);
+});
+
+cmd({
+    pattern: "ttaud_",
+    on: "body",
+    dontAddCommandList: true,
+    filename: __filename
+}, async (conn, mek, m, { from, reply, body }) => {
+    console.log(`[TIKTOK HANDLER ttaud_] Called with body: ${body}`);
+    if (!body || !global.tiktokDownloads) return;
+
+    const downloadData = global.tiktokDownloads.get(body);
+    if (!downloadData) return;
+
+    await handleTikTokDownload(conn, mek, from, reply, downloadData);
+    global.tiktokDownloads.delete(body);
+});
+
+cmd({
+    pattern: "ttauddoc_",
+    on: "body",
+    dontAddCommandList: true,
+    filename: __filename
+}, async (conn, mek, m, { from, reply, body }) => {
+    console.log(`[TIKTOK HANDLER ttauddoc_] Called with body: ${body}`);
+    if (!body || !global.tiktokDownloads) return;
+
+    const downloadData = global.tiktokDownloads.get(body);
+    if (!downloadData) return;
+
+    await handleTikTokDownload(conn, mek, from, reply, downloadData);
+    global.tiktokDownloads.delete(body);
 });
