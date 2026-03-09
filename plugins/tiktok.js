@@ -1,58 +1,6 @@
-const { cmd } = require('../command');
-const { Button } = require('../lib/button');
-const config = require('../config');
-const { getBuffer, fetchJson } = require('../lib/functions');
+// tiktok.js - Replace all button handlers with this pattern
 
-// Store TikTok downloads globally
-if (!global.tiktokDownloads) global.tiktokDownloads = new Map();
-if (!global.tiktokReplyHandlers) global.tiktokReplyHandlers = new Map();
-
-// Helper function to handle TikTok downloads
-async function handleTikTokDownload(conn, mek, from, reply, downloadData) {
-    try {
-        if (downloadData.type === 'video') {
-            if (downloadData.mode === 'document') {
-                await reply(`⏳ *Downloading ${downloadData.quality} video as document...*`);
-                await conn.sendMessage(from, {
-                    document: { url: downloadData.url },
-                    mimetype: 'video/mp4',
-                    fileName: `TikTok_${downloadData.username}_${Date.now()}_${downloadData.quality}_${downloadData.quality === 'WM' ? 'WM' : 'NoWM'}.mp4`,
-                    caption: `🎬 *TikTok Video (${downloadData.quality} - ${downloadData.quality === 'WM' ? 'With Watermark' : 'No Watermark'} - Document)*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
-                }, { quoted: mek });
-            } else {
-                await reply(`⏳ *Downloading ${downloadData.quality} video...*`);
-                await conn.sendMessage(from, {
-                    video: { url: downloadData.url },
-                    caption: `🎬 *TikTok Video (${downloadData.quality} - ${downloadData.quality === 'WM' ? 'With Watermark' : 'No Watermark'})*\n\n👤 ${downloadData.author}\n📝 ${downloadData.caption || ''}\n\n📥 Downloaded via ${config.BOT_NAME}`
-                }, { quoted: mek });
-            }
-        } else if (downloadData.type === 'audio') {
-            if (downloadData.mode === 'document') {
-                await reply(`⏳ *Downloading audio as document...*`);
-                await conn.sendMessage(from, {
-                    document: { url: downloadData.url },
-                    mimetype: 'audio/mpeg',
-                    fileName: `TikTok_${downloadData.title || 'Audio'}_${Date.now()}.mp3`,
-                    caption: `🎵 *TikTok Music*\n\n🎶 ${downloadData.title || 'Unknown'}\n👤 ${downloadData.musicAuthor || 'Unknown'}\n\n📥 Downloaded via ${config.BOT_NAME}`
-                }, { quoted: mek });
-            } else {
-                await reply(`⏳ *Downloading audio...*`);
-                await conn.sendMessage(from, {
-                    audio: { url: downloadData.url },
-                    mimetype: 'audio/mpeg',
-                    ptt: false
-                }, { quoted: mek });
-            }
-        }
-        return true;
-    } catch (error) {
-        console.error('[TIKTOK DOWNLOAD ERROR]', error);
-        await reply(`❌ *Failed to download!*\n\n${error.message}`);
-        return false;
-    }
-}
-
-// Main TikTok Command
+// Main TikTok Command (no changes needed here)
 cmd({
     pattern: "tiktok",
     alias: ["tt", "ttdl", "tiktokdl"],
@@ -248,103 +196,46 @@ cmd({
     }
 });
 
-// Button Response Handlers - Each with specific pattern
+// ============================================
+// FIXED BUTTON HANDLERS - Using prefix matching
+// ============================================
+
+// Handler for all TikTok button responses
 cmd({
-    pattern: "ttvidhd_",
+    pattern: "ttvidhd_|ttvidhddoc_|ttvidwm_|ttvidwmdoc_|ttaud_|ttauddoc_",
     on: "body",
     dontAddCommandList: true,
     filename: __filename
 }, async (conn, mek, m, { from, reply, body }) => {
-    console.log(`[TIKTOK HANDLER ttvidhd_] Called with body: ${body}`);
-    if (!body || !global.tiktokDownloads) return;
+    console.log(`[TIKTOK HANDLER] Called with body: ${body}`);
+    
+    if (!body || !global.tiktokDownloads) {
+        console.log(`[TIKTOK HANDLER] No body or downloads map`);
+        return;
+    }
+
+    // Check if body starts with any of our TikTok prefixes
+    const tiktokPrefixes = ['ttvidhd_', 'ttvidhddoc_', 'ttvidwm_', 'ttvidwmdoc_', 'ttaud_', 'ttauddoc_'];
+    const isTikTokButton = tiktokPrefixes.some(prefix => body.startsWith(prefix));
+    
+    if (!isTikTokButton) {
+        console.log(`[TIKTOK HANDLER] Body doesn't match TikTok prefixes: ${body}`);
+        return;
+    }
 
     const downloadData = global.tiktokDownloads.get(body);
     if (!downloadData) {
         console.log(`[TIKTOK HANDLER] No data found for: ${body}`);
+        console.log(`[TIKTOK HANDLER] Available keys:`, Array.from(global.tiktokDownloads.keys()));
         return;
     }
 
-    console.log(`[TIKTOK HANDLER] Found data, processing...`);
+    console.log(`[TIKTOK HANDLER] Found data, processing download...`);
     await handleTikTokDownload(conn, mek, from, reply, downloadData);
     global.tiktokDownloads.delete(body);
-});
-
-cmd({
-    pattern: "ttvidhddoc_",
-    on: "body",
-    dontAddCommandList: true,
-    filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
-    console.log(`[TIKTOK HANDLER ttvidhddoc_] Called with body: ${body}`);
-    if (!body || !global.tiktokDownloads) return;
-
-    const downloadData = global.tiktokDownloads.get(body);
-    if (!downloadData) return;
-
-    await handleTikTokDownload(conn, mek, from, reply, downloadData);
-    global.tiktokDownloads.delete(body);
-});
-
-cmd({
-    pattern: "ttvidwm_",
-    on: "body",
-    dontAddCommandList: true,
-    filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
-    console.log(`[TIKTOK HANDLER ttvidwm_] Called with body: ${body}`);
-    if (!body || !global.tiktokDownloads) return;
-
-    const downloadData = global.tiktokDownloads.get(body);
-    if (!downloadData) return;
-
-    await handleTikTokDownload(conn, mek, from, reply, downloadData);
-    global.tiktokDownloads.delete(body);
-});
-
-cmd({
-    pattern: "ttvidwmdoc_",
-    on: "body",
-    dontAddCommandList: true,
-    filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
-    console.log(`[TIKTOK HANDLER ttvidwmdoc_] Called with body: ${body}`);
-    if (!body || !global.tiktokDownloads) return;
-
-    const downloadData = global.tiktokDownloads.get(body);
-    if (!downloadData) return;
-
-    await handleTikTokDownload(conn, mek, from, reply, downloadData);
-    global.tiktokDownloads.delete(body);
-});
-
-cmd({
-    pattern: "ttaud_",
-    on: "body",
-    dontAddCommandList: true,
-    filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
-    console.log(`[TIKTOK HANDLER ttaud_] Called with body: ${body}`);
-    if (!body || !global.tiktokDownloads) return;
-
-    const downloadData = global.tiktokDownloads.get(body);
-    if (!downloadData) return;
-
-    await handleTikTokDownload(conn, mek, from, reply, downloadData);
-    global.tiktokDownloads.delete(body);
-});
-
-cmd({
-    pattern: "ttauddoc_",
-    on: "body",
-    dontAddCommandList: true,
-    filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
-    console.log(`[TIKTOK HANDLER ttauddoc_] Called with body: ${body}`);
-    if (!body || !global.tiktokDownloads) return;
-
-    const downloadData = global.tiktokDownloads.get(body);
-    if (!downloadData) return;
-
-    await handleTikTokDownload(conn, mek, from, reply, downloadData);
-    global.tiktokDownloads.delete(body);
+    
+    // Clean up old entries (optional)
+    setTimeout(() => {
+        global.tiktokDownloads.delete(body);
+    }, 60000);
 });
