@@ -1045,34 +1045,111 @@ function setupMessageHandlers(conn, number, messageStore) {
         
         // Handle button responses that don't match commands
         if (isButtonResponse && buttonResponseId && !isCmd) {
-            const buttonResponses = {
-                'btn_yes': '✅ You clicked YES! Great choice.',
-                'btn_no': '❌ You clicked NO! Maybe next time.',
-                'btn_status': '🤖 Bot is running perfectly on SRI-BOT!',
-                'btn_help': 'ℹ️ Use .menu for full command list or .testbuttons for button demo',
-                'menu_ping': '🚀 Use .ping command to check bot response speed!',
-                'menu_owner': '👤 Use .owner to contact the bot owner.',
-                'menu_about': 'ℹ️ SRI-BOT is a multi-number WhatsApp bot with GitHub integration.',
-                'cmd_ping': '🚀 Use .ping command to check bot response speed!',
-                'cmd_owner': '👤 Use .owner to contact the bot owner.',
-                'cmd_status': '📊 Bot Status:\n• Uptime: ' + runtime(process.uptime()) + '\n• Version: ' + currentConfig.VERSION,
-                'cmd_invite': '🔗 Use .invite to get group invite link.',
-                'cmd_promote': '👮 Use .promote @user to make someone admin.',
-                'cmd_remove': '🚫 Use .kick @user to remove a member.',
-                'cmd_joke': '😂 Joke feature coming soon!',
-                'cmd_sticker': '🖼️ Use .sticker to create stickers from images.',
-                'cmd_ytmusic': '🎵 Use .ytmp3 or .play to download music.',
-                'cmd_all': '📜 Full command list:\n.ping - Check speed\n.owner - Contact owner\n.menu - Show menu\n.testbuttons - Button demo',
-                'img_like': '❤️ Thanks for liking! We appreciate your support.',
-                'img_share': '🔁 Sharing is caring! Spread the word about SRI-BOT.'
-            };
+            console.log(`[BUTTON HANDLER] Processing button response: ${buttonResponseId}`);
             
-            const responseText = buttonResponses[buttonResponseId];
-            if (responseText) {
-                await reply(responseText);
-            } else if (buttonResponseId.startsWith('cmd_') || buttonResponseId.startsWith('btn_') || buttonResponseId.startsWith('menu_') || buttonResponseId.startsWith('img_')) {
-                // Unknown button ID but matches pattern
-                await reply(`📌 You selected: *${buttonResponseId}*\n\nThis feature is being developed!`);
+            // Find command that matches button response using regex or startsWith
+            const buttonCmd = events.commands.find((cmd) => {
+                if (cmd.on !== "body") return false;
+                
+                // Check if pattern matches
+                if (cmd.pattern) {
+                    // String pattern - check if buttonResponseId starts with it
+                    if (typeof cmd.pattern === 'string') {
+                        if (buttonResponseId.startsWith(cmd.pattern)) {
+                            console.log(`[BUTTON HANDLER] Matched string pattern: ${cmd.pattern}`);
+                            return true;
+                        }
+                    }
+                    // Regex pattern
+                    else if (cmd.pattern instanceof RegExp) {
+                        if (cmd.pattern.test(buttonResponseId)) {
+                            console.log(`[BUTTON HANDLER] Matched regex pattern: ${cmd.pattern}`);
+                            return true;
+                        }
+                    }
+                }
+                
+                // Check aliases
+                if (cmd.alias && Array.isArray(cmd.alias)) {
+                    for (const alias of cmd.alias) {
+                        if (typeof alias === 'string' && buttonResponseId.startsWith(alias)) {
+                            console.log(`[BUTTON HANDLER] Matched alias: ${alias}`);
+                            return true;
+                        }
+                        if (alias instanceof RegExp && alias.test(buttonResponseId)) {
+                            console.log(`[BUTTON HANDLER] Matched regex alias: ${alias}`);
+                            return true;
+                        }
+                    }
+                }
+                
+                return false;
+            });
+            
+            if (buttonCmd) {
+                console.log(`[BUTTON HANDLER] Found handler: ${buttonCmd.pattern}, executing...`);
+                try {
+                    buttonCmd.function(conn, mek, m, {
+                        from, 
+                        quoted, 
+                        body: buttonResponseId, 
+                        isCmd: false, 
+                        command: buttonCmd, 
+                        args: [], 
+                        q: '', 
+                        isGroup, 
+                        sender, 
+                        senderNumber, 
+                        botNumber2, 
+                        botNumber, 
+                        pushname, 
+                        isMe, 
+                        isOwner, 
+                        groupMetadata, 
+                        groupName, 
+                        participants, 
+                        groupAdmins, 
+                        isBotAdmins, 
+                        isAdmins, 
+                        reply
+                    });
+                    console.log(`[BUTTON HANDLER] Handler executed successfully`);
+                } catch (e) {
+                    console.error("[BUTTON HANDLER ERROR] " + e);
+                    console.error(e.stack);
+                }
+            } else {
+                console.log(`[BUTTON HANDLER] No handler found for: ${buttonResponseId}`);
+                
+                // Fallback to old buttonResponses object
+                const buttonResponses = {
+                    'btn_yes': '✅ You clicked YES! Great choice.',
+                    'btn_no': '❌ You clicked NO! Maybe next time.',
+                    'btn_status': '🤖 Bot is running perfectly on SRI-BOT!',
+                    'btn_help': 'ℹ️ Use .menu for full command list or .testbuttons for button demo',
+                    'menu_ping': '🚀 Use .ping command to check bot response speed!',
+                    'menu_owner': '👤 Use .owner to contact the bot owner.',
+                    'menu_about': 'ℹ️ SRI-BOT is a multi-number WhatsApp bot with GitHub integration.',
+                    'cmd_ping': '🚀 Use .ping command to check bot response speed!',
+                    'cmd_owner': '👤 Use .owner to contact the bot owner.',
+                    'cmd_status': '📊 Bot Status:\n• Uptime: ' + runtime(process.uptime()) + '\n• Version: ' + currentConfig.VERSION,
+                    'cmd_invite': '🔗 Use .invite to get group invite link.',
+                    'cmd_promote': '👮 Use .promote @user to make someone admin.',
+                    'cmd_remove': '🚫 Use .kick @user to remove a member.',
+                    'cmd_joke': '😂 Joke feature coming soon!',
+                    'cmd_sticker': '🖼️ Use .sticker to create stickers from images.',
+                    'cmd_ytmusic': '🎵 Use .ytmp3 or .play to download music.',
+                    'cmd_all': '📜 Full command list:\n.ping - Check speed\n.owner - Contact owner\n.menu - Show menu\n.testbuttons - Button demo',
+                    'img_like': '❤️ Thanks for liking! We appreciate your support.',
+                    'img_share': '🔁 Sharing is caring! Spread the word about SRI-BOT.'
+                };
+                
+                const responseText = buttonResponses[buttonResponseId];
+                if (responseText) {
+                    await reply(responseText);
+                } else if (buttonResponseId.startsWith('cmd_') || buttonResponseId.startsWith('btn_') || buttonResponseId.startsWith('menu_') || buttonResponseId.startsWith('img_')) {
+                    await reply(`📌 You selected: *${buttonResponseId}*\n\nThis feature is being developed!`);
+                }
             }
         }
         
@@ -1087,8 +1164,21 @@ function setupMessageHandlers(conn, number, messageStore) {
             if (handled) break; // Stop if already handled
             
             if (body && command.on === "body") {
+                // Skip if already handled as button response
+                if (isButtonResponse && buttonResponseId) continue;
+                
                 // Check if this command's pattern matches the body
-                if (command.pattern && body.trim() === command.pattern) {
+                let patternMatches = false;
+                
+                if (command.pattern) {
+                    if (typeof command.pattern === 'string') {
+                        patternMatches = body.trim() === command.pattern || body.startsWith(command.pattern);
+                    } else if (command.pattern instanceof RegExp) {
+                        patternMatches = command.pattern.test(body);
+                    }
+                }
+                
+                if (patternMatches) {
                     try {
                         await command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
                         handled = true; // Mark as handled
