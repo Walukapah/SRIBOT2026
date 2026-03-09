@@ -267,7 +267,7 @@ cmd({
 
             console.log(`[TIKTOK] Text mode handler registered for message: ${messageID}`);
 
-            // Set timeout to remove handler after 3 minutes
+            // Set timeout to remove handler after 3 minutes (silently - no message)
             setTimeout(() => {
                 if (global.tiktokReplyHandlers.has(messageID)) {
                     const handler = global.tiktokReplyHandlers.get(messageID);
@@ -275,11 +275,7 @@ cmd({
                     global.tiktokReplyHandlers.delete(messageID);
                     global.tiktokDownloads.delete(messageID);
                     console.log(`[TIKTOK] Handler expired for message: ${messageID}`);
-                    
-                    // Send expiration notice
-                    conn.sendMessage(from, {
-                        text: `⏰ *Download session expired!*\n\nThe download options for this TikTok video are no longer available.\nPlease use *.tiktok <url>* again if you need to download.`
-                    }).catch(() => {});
+                    // No expiration message sent - removed as requested
                 }
             }, 180000); // 3 minutes
 
