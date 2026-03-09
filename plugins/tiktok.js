@@ -52,6 +52,123 @@ async function handleTikTokDownload(conn, mek, from, reply, downloadData) {
     }
 }
 
+// Create reply handler for a specific message
+function createReplyHandler(conn, messageID, from, mek) {
+    return async function replyHandler(messageUpdate) {
+        try {
+            const mekInfo = messageUpdate?.messages[0];
+            if (!mekInfo?.message) return;
+
+            const msgText = mekInfo?.message?.conversation || mekInfo?.message?.extendedTextMessage?.text;
+            const isReplyToSentMsg = mekInfo?.message?.extendedTextMessage?.contextInfo?.stanzaId === messageID;
+
+            if (!isReplyToSentMsg || !msgText) return;
+
+            const userReply = msgText.trim();
+            const downloadData = global.tiktokDownloads.get(messageID);
+            
+            if (!downloadData) {
+                console.log(`[TIKTOK] No download data found for message: ${messageID}`);
+                return;
+            }
+
+            let selectedDownload = null;
+
+            switch(userReply) {
+                case "1.1":
+                    selectedDownload = { 
+                        type: 'video', 
+                        quality: 'HD', 
+                        mode: 'normal', 
+                        url: downloadData.videoUrlHD, 
+                        coverImage: downloadData.coverImage, 
+                        author: downloadData.author, 
+                        caption: downloadData.caption, 
+                        username: downloadData.username 
+                    };
+                    break;
+                case "1.2":
+                    selectedDownload = { 
+                        type: 'video', 
+                        quality: 'HD', 
+                        mode: 'document', 
+                        url: downloadData.videoUrlHD, 
+                        coverImage: downloadData.coverImage, 
+                        author: downloadData.author, 
+                        caption: downloadData.caption, 
+                        username: downloadData.username 
+                    };
+                    break;
+                case "1.3":
+                    selectedDownload = { 
+                        type: 'video', 
+                        quality: 'WM', 
+                        mode: 'normal', 
+                        url: downloadData.videoUrlWM, 
+                        coverImage: downloadData.coverImage, 
+                        author: downloadData.author, 
+                        caption: downloadData.caption, 
+                        username: downloadData.username 
+                    };
+                    break;
+                case "1.4":
+                    selectedDownload = { 
+                        type: 'video', 
+                        quality: 'WM', 
+                        mode: 'document', 
+                        url: downloadData.videoUrlWM, 
+                        coverImage: downloadData.coverImage, 
+                        author: downloadData.author, 
+                        caption: downloadData.caption, 
+                        username: downloadData.username 
+                    };
+                    break;
+                case "2.1":
+                    selectedDownload = { 
+                        type: 'audio', 
+                        mode: 'normal', 
+                        url: downloadData.musicUrl, 
+                        coverImage: downloadData.coverImage, 
+                        author: downloadData.author, 
+                        title: downloadData.title, 
+                        musicAuthor: downloadData.musicAuthor 
+                    };
+                    break;
+                case "2.2":
+                    selectedDownload = { 
+                        type: 'audio', 
+                        mode: 'document', 
+                        url: downloadData.musicUrl, 
+                        coverImage: downloadData.coverImage, 
+                        author: downloadData.author, 
+                        title: downloadData.title, 
+                        musicAuthor: downloadData.musicAuthor 
+                    };
+                    break;
+                default:
+                    // Invalid reply - ignore
+                    return;
+            }
+
+            if (selectedDownload) {
+                console.log(`[TIKTOK] Processing reply: ${userReply} for message: ${messageID}`);
+                await handleTikTokDownload(
+                    conn, 
+                    mekInfo, 
+                    from, 
+                    (text) => conn.sendMessage(from, { text }, { quoted: mekInfo }), 
+                    selectedDownload
+                );
+                // DO NOT remove handler - allow multiple replies
+                // Handler will be removed after timeout only
+            }
+
+        } catch (error) {
+            console.error('[TIKTOK REPLY ERROR]', error);
+        }
+    };
+}
+
 // Main TikTok Command
 cmd({
     pattern: "tiktok",
@@ -101,7 +218,7 @@ cmd({
             `🎶 *Music:* ${music.title} - ${music.author}`;
 
         if (messageType === 'text') {
-            // TEXT MODE
+            // TEXT MODE - Multi Reply Support
             const infoMsg = infoText + `\n\n📥 *Reply with your choice:*\n` +
                 `🎬 *1.1* - No Watermark Video HD\n` +
                 `🎬 *1.2* - No Watermark Video HD (Document)\n` +
@@ -109,6 +226,7 @@ cmd({
                 `🎬 *1.4* - With Watermark Video (Document)\n` +
                 `🎵 *2.1* - Audio\n` +
                 `🎵 *2.2* - Audio (Document)\n\n` +
+                `⏳ *Active for 3 minutes - You can reply multiple times!*\n` +
                 `${config.FOOTER || "POWERED BY SRI-BOT 🇱🇰"}`;
 
             const sentMsg = await conn.sendMessage(from, { 
@@ -127,6 +245,8 @@ cmd({
             }, { quoted: mek });
 
             const messageID = sentMsg.key.id;
+            
+            // Store all download data
             global.tiktokDownloads.set(messageID, {
                 videoUrlHD: downloadLinks.no_watermark.hd,
                 videoUrlSD: downloadLinks.no_watermark.sd,
@@ -140,64 +260,28 @@ cmd({
                 username: author.username
             });
 
-            // Reply handler for text mode
-            const replyHandler = async (messageUpdate) => {
-                try {
-                    const mekInfo = messageUpdate?.messages[0];
-                    if (!mekInfo?.message) return;
-
-                    const msgText = mekInfo?.message?.conversation || mekInfo?.message?.extendedTextMessage?.text;
-                    const isReplyToSentMsg = mekInfo?.message?.extendedTextMessage?.contextInfo?.stanzaId === messageID;
-
-                    if (!isReplyToSentMsg || !msgText) return;
-
-                    let userReply = msgText.trim();
-                    let downloadData = null;
-
-                    switch(userReply) {
-                        case "1.1":
-                            downloadData = { type: 'video', quality: 'HD', mode: 'normal', url: downloadLinks.no_watermark.hd, coverImage: videoInfo.cover_image, author: author.nickname, caption: videoInfo.caption, username: author.username };
-                            break;
-                        case "1.2":
-                            downloadData = { type: 'video', quality: 'HD', mode: 'document', url: downloadLinks.no_watermark.hd, coverImage: videoInfo.cover_image, author: author.nickname, caption: videoInfo.caption, username: author.username };
-                            break;
-                        case "1.3":
-                            downloadData = { type: 'video', quality: 'WM', mode: 'normal', url: downloadLinks.with_watermark.url, coverImage: videoInfo.cover_image, author: author.nickname, caption: videoInfo.caption, username: author.username };
-                            break;
-                        case "1.4":
-                            downloadData = { type: 'video', quality: 'WM', mode: 'document', url: downloadLinks.with_watermark.url, coverImage: videoInfo.cover_image, author: author.nickname, caption: videoInfo.caption, username: author.username };
-                            break;
-                        case "2.1":
-                            downloadData = { type: 'audio', mode: 'normal', url: music.play_url, coverImage: videoInfo.cover_image, author: author.nickname, title: music.title, musicAuthor: music.author };
-                            break;
-                        case "2.2":
-                            downloadData = { type: 'audio', mode: 'document', url: music.play_url, coverImage: videoInfo.cover_image, author: author.nickname, title: music.title, musicAuthor: music.author };
-                            break;
-                        default:
-                            return;
-                    }
-
-                    conn.ev.off('messages.upsert', replyHandler);
-                    global.tiktokReplyHandlers.delete(messageID);
-                    await handleTikTokDownload(conn, mekInfo, from, 
-                        (text) => conn.sendMessage(from, { text }, { quoted: mekInfo }), 
-                        downloadData);
-
-                } catch (error) {
-                    console.error('[TIKTOK REPLY ERROR]', error);
-                }
-            };
-
+            // Create and register reply handler
+            const replyHandler = createReplyHandler(conn, messageID, from, mek);
             global.tiktokReplyHandlers.set(messageID, replyHandler);
             conn.ev.on('messages.upsert', replyHandler);
 
+            console.log(`[TIKTOK] Text mode handler registered for message: ${messageID}`);
+
+            // Set timeout to remove handler after 3 minutes
             setTimeout(() => {
                 if (global.tiktokReplyHandlers.has(messageID)) {
-                    conn.ev.off('messages.upsert', replyHandler);
+                    const handler = global.tiktokReplyHandlers.get(messageID);
+                    conn.ev.off('messages.upsert', handler);
                     global.tiktokReplyHandlers.delete(messageID);
                     global.tiktokDownloads.delete(messageID);
+                    console.log(`[TIKTOK] Handler expired for message: ${messageID}`);
+                    
+                    // Send expiration notice
+                    conn.sendMessage(from, {
+                        text: `⏰ *Download session expired!*\n\nThe download options for this TikTok video are no longer available.\nPlease use *.tiktok <url>* again if you need to download.`
+                    }).catch(() => {});
                 }
-            }, 180000);
+            }, 180000); // 3 minutes
 
         } else {
             // BUTTON MODE
@@ -249,7 +333,7 @@ cmd({
 });
 
 // ============================================
-// FIXED BUTTON HANDLERS - Using prefix matching
+// BUTTON HANDLERS - Using prefix matching
 // ============================================
 
 // Handler for all TikTok button responses
@@ -262,22 +346,16 @@ cmd({
     console.log(`[TIKTOK HANDLER ttvidhd_] Called with body: ${body}`);
     if (!body || !global.tiktokDownloads) return;
 
-    // Check if body starts with our prefix
-    if (!body.startsWith('ttvidhd_')) {
-        console.log(`[TIKTOK HANDLER] Body doesn't start with ttvidhd_: ${body}`);
-        return;
-    }
+    if (!body.startsWith('ttvidhd_')) return;
 
     const downloadData = global.tiktokDownloads.get(body);
     if (!downloadData) {
         console.log(`[TIKTOK HANDLER] No data found for: ${body}`);
-        console.log(`[TIKTOK HANDLER] Available keys:`, Array.from(global.tiktokDownloads.keys()));
         return;
     }
 
-    console.log(`[TIKTOK HANDLER] Found data, processing...`);
     await handleTikTokDownload(conn, mek, from, reply, downloadData);
-    global.tiktokDownloads.delete(body);
+    // DO NOT delete - allow multiple downloads
 });
 
 cmd({
@@ -295,7 +373,6 @@ cmd({
     if (!downloadData) return;
 
     await handleTikTokDownload(conn, mek, from, reply, downloadData);
-    global.tiktokDownloads.delete(body);
 });
 
 cmd({
@@ -313,7 +390,6 @@ cmd({
     if (!downloadData) return;
 
     await handleTikTokDownload(conn, mek, from, reply, downloadData);
-    global.tiktokDownloads.delete(body);
 });
 
 cmd({
@@ -331,7 +407,6 @@ cmd({
     if (!downloadData) return;
 
     await handleTikTokDownload(conn, mek, from, reply, downloadData);
-    global.tiktokDownloads.delete(body);
 });
 
 cmd({
@@ -349,7 +424,6 @@ cmd({
     if (!downloadData) return;
 
     await handleTikTokDownload(conn, mek, from, reply, downloadData);
-    global.tiktokDownloads.delete(body);
 });
 
 cmd({
@@ -367,5 +441,4 @@ cmd({
     if (!downloadData) return;
 
     await handleTikTokDownload(conn, mek, from, reply, downloadData);
-    global.tiktokDownloads.delete(body);
 });
