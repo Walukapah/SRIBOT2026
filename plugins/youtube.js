@@ -11,7 +11,7 @@ if (!global.youtubeReplyHandlers) global.youtubeReplyHandlers = new Map();
 async function handleYouTubeDownload(conn, mek, from, reply, downloadData) {
     try {
         // First, fetch the actual download URL from the processing URL
-        await reply(`⏳ *Processing ${downloadData.type} download...*`);
+        await reply(`⏳ *Processing ${downloadData.type} download...*\n\n⏱️ This may take a few seconds...`);
         
         const processResponse = await fetchJson(downloadData.processUrl);
         
@@ -172,41 +172,92 @@ cmd({
         await reply(`⏳ *Fetching YouTube video info...*\n\n🔄 Please wait...`);
 
         const apiUrl = `https://sri-api.vercel.app/download/youtubedl?url=${encodeURIComponent(youtubeUrl)}`;
-        const response = await fetchJson(apiUrl);
-
-        if (!response || !response.status || !response.result || !response.result.result) {
-            return reply(`❌ *Failed to fetch video!*\n\nThe video might be private, deleted, or the API is temporarily unavailable.`);
+        
+        console.log(`[YOUTUBE] Fetching: ${apiUrl}`);
+        
+        let response;
+        try {
+            response = await fetchJson(apiUrl);
+        } catch (apiError) {
+            console.error('[YOUTUBE] API Error:', apiError);
+            return reply(`❌ *API Error!*\n\nFailed to fetch video information. Please try again later.`);
         }
 
-        const data = response.result.result;
-        const api = data.api;
-        const mediaItems = data.mediaItems;
+        console.log(`[YOUTUBE] API Response:`, JSON.stringify(response, null, 2));
+
+        // Check response structure - handle both possible formats
+        let data, api, mediaItems;
+        
+        if (response && response.status === true && response.result) {
+            // Format 1: { status: true, result: { ... } }
+            if (response.result.result) {
+                data = response.result.result;
+            } else {
+                data = response.result;
+            }
+        } else if (response && response.status === "completed") {
+            // Direct response format
+            data = response;
+        } else {
+            console.error('[YOUTUBE] Invalid response:', response);
+            return reply(`❌ *Failed to fetch video!*\n\nInvalid API response. The video might be private, deleted, or unavailable.`);
+        }
+
+        // Extract data safely
+        api = data.api || data;
+        mediaItems = data.mediaItems || (api.mediaItems || []);
+
+        if (!api || !mediaItems || !Array.isArray(mediaItems)) {
+            console.error('[YOUTUBE] Missing data:', { api: !!api, mediaItems: !!mediaItems });
+            return reply(`❌ *Failed to parse video data!*\n\nThe API response format has changed or the video is unavailable.`);
+        }
 
         // Find 360p video (lowest quality for video)
-        const video360p = mediaItems.find(item => item.type === 'Video' && item.mediaQuality === '360p');
+        const video360p = mediaItems.find(item => 
+            item && item.type === 'Video' && item.mediaQuality === '360p'
+        );
+        
         // Find 48k audio (lowest quality for audio - smallest size)
-        const audio48k = mediaItems.find(item => item.type === 'Audio' && item.mediaQuality === '48K');
+        const audio48k = mediaItems.find(item => 
+            item && item.type === 'Audio' && item.mediaQuality === '48K'
+        );
+
+        console.log(`[YOUTUBE] Found formats:`, {
+            video360p: !!video360p,
+            audio48k: !!audio48k,
+            totalItems: mediaItems.length
+        });
 
         if (!video360p && !audio48k) {
-            return reply(`❌ *No downloadable formats found!*\n\nThe video might be restricted or unavailable.`);
+            return reply(`❌ *No downloadable formats found!*\n\nThe video might be restricted, age-restricted, or unavailable.`);
         }
 
-        const infoText = `🎬 *YouTube Video Info*\n\n` +
-            `📌 *Title:* ${api.title}\n` +
-            `👤 *Channel:* ${api.userInfo.name}\n` +
-            `⏱️ *Duration:* ${video360p?.mediaDuration || audio48k?.mediaDuration || 'Unknown'}\n` +
-            `👁️ *Views:* ${api.mediaStats.viewsCount}\n` +
-            `📅 *Posted:* ${api.userInfo.dateJoined || 'Unknown'}\n\n` +
-            `📝 *Description:*\n${api.description ? api.description.substring(0, 200) + '...' : 'No description'}`;
+        // Safely extract info with fallbacks
+        const title = api.title || 'Unknown Title';
+        const channelName = api.userInfo?.name || api.channel || 'Unknown Channel';
+        const videoId = api.id || 'unknown';
+        const thumbnail = api.imagePreviewUrl || api.thumbnail || 'https://i.ytimg.com/vi/default.jpg';
+        const duration = video360p?.mediaDuration || audio48k?.mediaDuration || 'Unknown';
+        const views = api.mediaStats?.viewsCount || api.views || 'Unknown';
+        const dateJoined = api.userInfo?.dateJoined || 'Unknown';
+        const description = api.description ? api.description.substring(0, 200) + '...' : 'No description';
 
-        // Store download URLs
+        const infoText = `🎬 *YouTube Video Info*\n\n` +
+            `📌 *Title:* ${title}\n` +
+            `👤 *Channel:* ${channelName}\n` +
+            `⏱️ *Duration:* ${duration}\n` +
+            `👁️ *Views:* ${views}\n` +
+            `📅 *Posted:* ${dateJoined}\n\n` +
+            `📝 *Description:*\n${description}`;
+
+        // Store download URLs safely
         const downloadData = {
             video360pUrl: video360p?.mediaUrl || null,
             audio48kUrl: audio48k?.mediaUrl || null,
-            videoId: api.id,
-            title: api.title,
-            channel: api.userInfo.name,
-            thumbnail: api.imagePreviewUrl
+            videoId: videoId,
+            title: title,
+            channel: channelName,
+            thumbnail: thumbnail
         };
 
         if (messageType === 'text') {
@@ -229,13 +280,13 @@ cmd({
             optionsText += `${config.FOOTER || "POWERED BY SRI-BOT 🇱🇰"}`;
 
             const sentMsg = await conn.sendMessage(from, { 
-                image: { url: api.imagePreviewUrl }, 
+                image: { url: thumbnail }, 
                 caption: infoText + optionsText,
                 contextInfo: {
                     externalAdReply: {
                         title: "YouTube Downloader",
-                        body: api.title,
-                        thumbnailUrl: api.imagePreviewUrl,
+                        body: title,
+                        thumbnailUrl: thumbnail,
                         sourceUrl: youtubeUrl,
                         mediaType: 1,
                         renderLargerThumbnail: true
@@ -269,7 +320,7 @@ cmd({
         } else {
             // BUTTON MODE
             const btn = new Button();
-            await btn.setImage(api.imagePreviewUrl);
+            await btn.setImage(thumbnail);
             btn.setTitle("🎬 YouTube Downloader");
             btn.setBody(infoText);
             btn.setFooter(`Powered by ${botName} 🇱🇰`);
@@ -292,9 +343,9 @@ cmd({
                     quality: '360p',
                     mode: 'normal',
                     processUrl: video360p.mediaUrl,
-                    videoId: api.id,
-                    title: api.title,
-                    channel: api.userInfo.name
+                    videoId: videoId,
+                    title: title,
+                    channel: channelName
                 });
                 
                 global.youtubeDownloads.set(videoDocId, {
@@ -302,9 +353,9 @@ cmd({
                     quality: '360p',
                     mode: 'document',
                     processUrl: video360p.mediaUrl,
-                    videoId: api.id,
-                    title: api.title,
-                    channel: api.userInfo.name
+                    videoId: videoId,
+                    title: title,
+                    channel: channelName
                 });
             }
 
@@ -321,9 +372,9 @@ cmd({
                     quality: '48k',
                     mode: 'normal',
                     processUrl: audio48k.mediaUrl,
-                    videoId: api.id,
-                    title: api.title,
-                    channel: api.userInfo.name
+                    videoId: videoId,
+                    title: title,
+                    channel: channelName
                 });
                 
                 global.youtubeDownloads.set(audioDocId, {
@@ -331,9 +382,9 @@ cmd({
                     quality: '48k',
                     mode: 'document',
                     processUrl: audio48k.mediaUrl,
-                    videoId: api.id,
-                    title: api.title,
-                    channel: api.userInfo.name
+                    videoId: videoId,
+                    title: title,
+                    channel: channelName
                 });
             }
 
@@ -345,7 +396,7 @@ cmd({
         }
 
     } catch (error) {
-        console.error("YouTube download error:", error);
+        console.error("[YOUTUBE] Fatal error:", error);
         reply(`❌ *Error downloading video!*\n\n${error.message}`);
     }
 });
