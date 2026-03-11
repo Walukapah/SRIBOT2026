@@ -1,201 +1,430 @@
-const config = require('../config');
 const { cmd } = require('../command');
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const ffmpeg = require('fluent-ffmpeg'); // npm install fluent-ffmpeg
-const { tmpdir } = require('os');
+const { Button } = require('../lib/button');
+const config = require('../config');
+const { getBuffer, fetchJson } = require('../lib/functions');
 
-function replaceYouTubeID(url) {
-    const regex = /(?:youtube\.com\/(?:.*v=|.*\/)|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/;
-    const match = url.match(regex);
-    return match ? match[1] : null;
-}
+// Store YouTube downloads globally
+if (!global.youtubeDownloads) global.youtubeDownloads = new Map();
+if (!global.youtubeReplyHandlers) global.youtubeReplyHandlers = new Map();
 
-async function searchYoutube(query) {
+// Helper function to handle YouTube downloads
+async function handleYouTubeDownload(conn, mek, from, reply, downloadData) {
     try {
-        const response = await axios.get(`https://sri-api.vercel.app/download/youtubedl?url=${encodeURIComponent(query)}`);
-        return response.data;
+        // First, fetch the actual download URL from the processing URL
+        await reply(`⏳ *Processing ${downloadData.type} download...*`);
+        
+        const processResponse = await fetchJson(downloadData.processUrl);
+        
+        if (!processResponse || processResponse.status !== 'completed' || !processResponse.fileUrl) {
+            return reply(`❌ *Failed to process download!*\n\nThe file might be too large or the server is busy.`);
+        }
+
+        const fileUrl = processResponse.fileUrl;
+        const fileSize = processResponse.fileSize || 'Unknown';
+        
+        if (downloadData.type === 'video') {
+            if (downloadData.mode === 'document') {
+                await conn.sendMessage(from, {
+                    document: { url: fileUrl },
+                    mimetype: 'video/mp4',
+                    fileName: `YouTube_${downloadData.videoId}_${downloadData.quality}_${Date.now()}.mp4`,
+                    caption: `🎬 *YouTube Video (${downloadData.quality} - Document)*\n\n📌 *Title:* ${downloadData.title}\n👤 *Channel:* ${downloadData.channel}\n📊 *Size:* ${fileSize}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                }, { quoted: mek });
+            } else {
+                await conn.sendMessage(from, {
+                    video: { url: fileUrl },
+                    caption: `🎬 *YouTube Video (${downloadData.quality})*\n\n📌 *Title:* ${downloadData.title}\n👤 *Channel:* ${downloadData.channel}\n📊 *Size:* ${fileSize}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                }, { quoted: mek });
+            }
+        } else if (downloadData.type === 'audio') {
+            if (downloadData.mode === 'document') {
+                await conn.sendMessage(from, {
+                    document: { url: fileUrl },
+                    mimetype: 'audio/mpeg',
+                    fileName: `YouTube_${downloadData.videoId}_Audio_${Date.now()}.mp3`,
+                    caption: `🎵 *YouTube Audio (Document)*\n\n📌 *Title:* ${downloadData.title}\n👤 *Channel:* ${downloadData.channel}\n📊 *Size:* ${fileSize}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                }, { quoted: mek });
+            } else {
+                await conn.sendMessage(from, {
+                    audio: { url: fileUrl },
+                    mimetype: 'audio/mpeg',
+                    ptt: false
+                }, { quoted: mek });
+            }
+        }
+        return true;
     } catch (error) {
-        console.error('YouTube search error:', error);
-        return null;
+        console.error('[YOUTUBE DOWNLOAD ERROR]', error);
+        await reply(`❌ *Failed to download!*\n\n${error.message}`);
+        return false;
     }
 }
 
+// Create reply handler for a specific message
+function createReplyHandler(conn, messageID, from, mek) {
+    return async function replyHandler(messageUpdate) {
+        try {
+            const mekInfo = messageUpdate?.messages[0];
+            if (!mekInfo?.message) return;
+
+            const msgText = mekInfo?.message?.conversation || mekInfo?.message?.extendedTextMessage?.text;
+            const isReplyToSentMsg = mekInfo?.message?.extendedTextMessage?.contextInfo?.stanzaId === messageID;
+
+            if (!isReplyToSentMsg || !msgText) return;
+
+            const userReply = msgText.trim();
+            const downloadData = global.youtubeDownloads.get(messageID);
+            
+            if (!downloadData) {
+                console.log(`[YOUTUBE] No download data found for message: ${messageID}`);
+                return;
+            }
+
+            let selectedDownload = null;
+
+            switch(userReply) {
+                case "1.1":
+                    selectedDownload = { 
+                        type: 'video', 
+                        quality: '360p', 
+                        mode: 'normal', 
+                        processUrl: downloadData.video360pUrl,
+                        videoId: downloadData.videoId,
+                        title: downloadData.title,
+                        channel: downloadData.channel
+                    };
+                    break;
+                case "1.2":
+                    selectedDownload = { 
+                        type: 'video', 
+                        quality: '360p', 
+                        mode: 'document', 
+                        processUrl: downloadData.video360pUrl,
+                        videoId: downloadData.videoId,
+                        title: downloadData.title,
+                        channel: downloadData.channel
+                    };
+                    break;
+                case "2.1":
+                    selectedDownload = { 
+                        type: 'audio', 
+                        quality: '48k', 
+                        mode: 'normal', 
+                        processUrl: downloadData.audio48kUrl,
+                        videoId: downloadData.videoId,
+                        title: downloadData.title,
+                        channel: downloadData.channel
+                    };
+                    break;
+                case "2.2":
+                    selectedDownload = { 
+                        type: 'audio', 
+                        quality: '48k', 
+                        mode: 'document', 
+                        processUrl: downloadData.audio48kUrl,
+                        videoId: downloadData.videoId,
+                        title: downloadData.title,
+                        channel: downloadData.channel
+                    };
+                    break;
+                default:
+                    // Invalid reply - ignore
+                    return;
+            }
+
+            if (selectedDownload) {
+                console.log(`[YOUTUBE] Processing reply: ${userReply} for message: ${messageID}`);
+                await handleYouTubeDownload(
+                    conn, 
+                    mekInfo, 
+                    from, 
+                    (text) => conn.sendMessage(from, { text }, { quoted: mekInfo }), 
+                    selectedDownload
+                );
+                // DO NOT remove handler - allow multiple replies
+            }
+
+        } catch (error) {
+            console.error('[YOUTUBE REPLY ERROR]', error);
+        }
+    };
+}
+
+// Main YouTube Command
 cmd({
     pattern: "youtube",
-    alias: ["yt", "ytdl"],
-    react: "🎥",
-    desc: "Download YouTube videos or audio",
+    alias: ["yt", "ytdl", "youtubedl", "ytmp4", "ytmp3"],
+    desc: "Download YouTube videos and audio",
     category: "download",
-    use: ".youtube <Text or YT URL>",
+    react: "🎬",
     filename: __filename
-}, async (conn, m, mek, { from, q, reply }) => {
+}, async (conn, mek, m, { from, reply, args, q, pushname }) => {
     try {
-        if (!q) return await reply("❌ Please provide a Query or YouTube URL!");
+        const prefix = config.PREFIX;
+        const botName = config.BOT_NAME;
+        const messageType = config.MESSAGE_TYPE || 'button';
 
-        let id = q.startsWith("https://") ? replaceYouTubeID(q) : null;
-
-        if (!id) {
-            const searchResults = await searchYoutube(q);
-            if (!searchResults?.result?.data?.video_info?.id) return await reply("❌ No results found!");
-            id = searchResults.result.data.video_info.id;
+        if (!q || (!q.includes('youtube.com') && !q.includes('youtu.be'))) {
+            return reply(`❌ *Please provide a valid YouTube URL!*\n\n*Usage:* ${prefix}youtube <video-url>\n\n*Examples:*\n• ${prefix}yt https://youtu.be/xxxxx\n• ${prefix}youtube https://www.youtube.com/watch?v=xxxxx`);
         }
 
-        const data = await searchYoutube(`https://youtube.com/watch?v=${id}`);
-        if (!data?.result?.data) return await reply("❌ Failed to fetch video!");
+        const youtubeUrl = q.trim();
+        await reply(`⏳ *Fetching YouTube video info...*\n\n🔄 Please wait...`);
 
-        const videoInfo = data.result.data.video_info;
-        const stats = data.result.data.statistics;
-        const author = data.result.data.author;
-        const downloadItems = data.result.data.download_links.items;
+        const apiUrl = `https://sri-api.vercel.app/download/youtubedl?url=${encodeURIComponent(youtubeUrl)}`;
+        const response = await fetchJson(apiUrl);
 
-        let info = `🎥 *𝚈𝙾𝚄𝚃𝚄𝙱𝙴 𝙳𝙾𝚆𝙽𝙻𝙾𝙰𝙳𝙴𝚁* 🎥\n\n` +
-            `📌 *Title:* ${videoInfo.title || "Unknown"}\n` +
-            `⏳ *Duration:* ${videoInfo.duration_formatted || "Unknown"}\n` +
-            `👀 *Views:* ${stats.views_formatted || "Unknown"}\n` +
-            `👍 *Likes:* ${stats.likes_formatted || "Unknown"}\n` +
-            `👤 *Author:* ${author?.name || "Unknown"}\n` +
-            `🔗 *Url:* ${videoInfo.original_url || "Unknown"}\n\n` +
-            `🔽 *Reply with your choice:*\n` +
-            `🎵 *Audio Options:*\n` +
-            `1️⃣.1️⃣ Audio (128kbps)\n` +
-            `1️⃣.2️⃣ Audio (48kbps)\n\n` +
-            `📹 *Video Options:*\n` +
-            `2️⃣.1️⃣ Video (FHD 1080p)\n` +
-            `2️⃣.2️⃣ Video (HD 720p)\n` +
-            `2️⃣.3️⃣ Video (SD 480p)\n` +
-            `2️⃣.4️⃣ Video (360p)\n` +
-            `2️⃣.5️⃣ Video (240p)\n` +
-            `2️⃣.6️⃣ Video (144p)\n\n` +
-            `${config.FOOTER || "POWERED BY YOUR BOT NAME"}`;
+        if (!response || !response.status || !response.result || !response.result.result) {
+            return reply(`❌ *Failed to fetch video!*\n\nThe video might be private, deleted, or the API is temporarily unavailable.`);
+        }
 
-        const sentMsg = await conn.sendMessage(from, { 
-            image: { url: videoInfo.imagePreviewUrl }, 
-            caption: info 
-        }, { quoted: mek });
-        
-        const messageID = sentMsg.key.id;
-        await conn.sendMessage(from, { react: { text: '🎬', key: sentMsg.key } });
+        const data = response.result.result;
+        const api = data.api;
+        const mediaItems = data.mediaItems;
 
-        const replyHandler = async (messageUpdate) => {
-            try {
-                const mekInfo = messageUpdate?.messages[0];
-                if (!mekInfo?.message) return;
+        // Find 360p video (lowest quality for video)
+        const video360p = mediaItems.find(item => item.type === 'Video' && item.mediaQuality === '360p');
+        // Find 48k audio (lowest quality for audio - smallest size)
+        const audio48k = mediaItems.find(item => item.type === 'Audio' && item.mediaQuality === '48K');
 
-                const messageType = mekInfo?.message?.conversation || mekInfo?.message?.extendedTextMessage?.text;
-                const isReplyToSentMsg = mekInfo?.message?.extendedTextMessage?.contextInfo?.stanzaId === messageID;
+        if (!video360p && !audio48k) {
+            return reply(`❌ *No downloadable formats found!*\n\nThe video might be restricted or unavailable.`);
+        }
 
-                if (!isReplyToSentMsg) return;
+        const infoText = `🎬 *YouTube Video Info*\n\n` +
+            `📌 *Title:* ${api.title}\n` +
+            `👤 *Channel:* ${api.userInfo.name}\n` +
+            `⏱️ *Duration:* ${video360p?.mediaDuration || audio48k?.mediaDuration || 'Unknown'}\n` +
+            `👁️ *Views:* ${api.mediaStats.viewsCount}\n` +
+            `📅 *Posted:* ${api.userInfo.dateJoined || 'Unknown'}\n\n` +
+            `📝 *Description:*\n${api.description ? api.description.substring(0, 200) + '...' : 'No description'}`;
 
-                let userReply = messageType.trim();
-                let msg;
-                let downloadUrl;
-                let type;
-                let fileName;
-
-                conn.ev.off('messages.upsert', replyHandler);
-
-                const findItem = (type, quality) => 
-                    downloadItems.find(item => item.type === type && item.quality === quality);
-
-                switch(userReply) {
-                    // Audio options (convert to mp3)
-                    case "1.1":
-                        const audio128k = findItem("Audio", "128K");
-                        if (!audio128k) return await reply("❌ 128kbps audio not available!");
-                        downloadUrl = audio128k.url;
-                        fileName = `${videoInfo.title}.mp3`;
-                        msg = await conn.sendMessage(from, { text: "⏳ Downloading & Converting to MP3..." }, { quoted: mek });
-                        await sendAsMp3(conn, from, downloadUrl, fileName, mek);
-                        await conn.sendMessage(from, { text: '✅ Sent as MP3 ✅', edit: msg.key });
-                        return;
-
-                    case "1.2":
-                        const audio48k = findItem("Audio", "48K");
-                        if (!audio48k) return await reply("❌ 48kbps audio not available!");
-                        downloadUrl = audio48k.url;
-                        fileName = `${videoInfo.title}.mp3`;
-                        msg = await conn.sendMessage(from, { text: "⏳ Downloading & Converting to MP3..." }, { quoted: mek });
-                        await sendAsMp3(conn, from, downloadUrl, fileName, mek);
-                        await conn.sendMessage(from, { text: '✅ Sent as MP3 ✅', edit: msg.key });
-                        return;
-
-                    // Video options
-                    case "2.1":
-                        type = { video: { url: findItem("Video", "FHD")?.url }, caption: videoInfo.title };
-                        break;
-                    case "2.2":
-                        type = { video: { url: findItem("Video", "HD")?.url }, caption: videoInfo.title };
-                        break;
-                    case "2.3":
-                        type = { video: { url: findItem("Video", "SD")?.url }, caption: videoInfo.title };
-                        break;
-                    case "2.4":
-                        type = { video: { url: findItem("Video", "SD")?.url }, caption: videoInfo.title };
-                        break;
-                    case "2.5":
-                        type = { video: { url: findItem("Video", "SD")?.url }, caption: videoInfo.title };
-                        break;
-                    case "2.6":
-                        type = { video: { url: findItem("Video", "SD")?.url }, caption: videoInfo.title };
-                        break;
-                    default:
-                        return await reply("❌ Invalid choice! Please reply with one of the provided options.");
-                }
-
-                msg = await conn.sendMessage(from, { text: "⏳ Downloading Video..." }, { quoted: mek });
-                await conn.sendMessage(from, type, { quoted: mek });
-                await conn.sendMessage(from, { text: '✅ Download Successful ✅', edit: msg.key });
-
-            } catch (error) {
-                console.error(error);
-                await reply(`❌ *An error occurred while processing:* ${error.message || "Error!"}`);
-            }
+        // Store download URLs
+        const downloadData = {
+            video360pUrl: video360p?.mediaUrl || null,
+            audio48kUrl: audio48k?.mediaUrl || null,
+            videoId: api.id,
+            title: api.title,
+            channel: api.userInfo.name,
+            thumbnail: api.imagePreviewUrl
         };
 
-        conn.ev.on('messages.upsert', replyHandler);
-        setTimeout(() => conn.ev.off('messages.upsert', replyHandler), 60000);
+        if (messageType === 'text') {
+            // TEXT MODE - Multi Reply Support
+            let optionsText = `\n\n📥 *Reply with your choice:*\n`;
+            
+            if (video360p) {
+                optionsText += `\n🎬 *Video Options:*\n`;
+                optionsText += `🎬 *1.1* - Video 360p (Normal)\n`;
+                optionsText += `📄 *1.2* - Video 360p (Document)\n`;
+            }
+            
+            if (audio48k) {
+                optionsText += `\n🎵 *Audio Options:*\n`;
+                optionsText += `🎵 *2.1* - Audio 48k (Normal)\n`;
+                optionsText += `📄 *2.2* - Audio 48k (Document)\n`;
+            }
+            
+            optionsText += `\n⏳ *Active for 3 minutes - You can reply multiple times!*\n`;
+            optionsText += `${config.FOOTER || "POWERED BY SRI-BOT 🇱🇰"}`;
+
+            const sentMsg = await conn.sendMessage(from, { 
+                image: { url: api.imagePreviewUrl }, 
+                caption: infoText + optionsText,
+                contextInfo: {
+                    externalAdReply: {
+                        title: "YouTube Downloader",
+                        body: api.title,
+                        thumbnailUrl: api.imagePreviewUrl,
+                        sourceUrl: youtubeUrl,
+                        mediaType: 1,
+                        renderLargerThumbnail: true
+                    }
+                }
+            }, { quoted: mek });
+
+            const messageID = sentMsg.key.id;
+            
+            // Store all download data
+            global.youtubeDownloads.set(messageID, downloadData);
+
+            // Create and register reply handler
+            const replyHandler = createReplyHandler(conn, messageID, from, mek);
+            global.youtubeReplyHandlers.set(messageID, replyHandler);
+            conn.ev.on('messages.upsert', replyHandler);
+
+            console.log(`[YOUTUBE] Text mode handler registered for message: ${messageID}`);
+
+            // Set timeout to remove handler after 3 minutes
+            setTimeout(() => {
+                if (global.youtubeReplyHandlers.has(messageID)) {
+                    const handler = global.youtubeReplyHandlers.get(messageID);
+                    conn.ev.off('messages.upsert', handler);
+                    global.youtubeReplyHandlers.delete(messageID);
+                    global.youtubeDownloads.delete(messageID);
+                    console.log(`[YOUTUBE] Handler expired for message: ${messageID}`);
+                }
+            }, 180000); // 3 minutes
+
+        } else {
+            // BUTTON MODE
+            const btn = new Button();
+            await btn.setImage(api.imagePreviewUrl);
+            btn.setTitle("🎬 YouTube Downloader");
+            btn.setBody(infoText);
+            btn.setFooter(`Powered by ${botName} 🇱🇰`);
+
+            btn.addSelection("📥 Select Download Option");
+            btn.makeSection("⬇️ Download Options", "Choose format and quality");
+
+            const baseId = Date.now().toString();
+
+            // Video buttons
+            if (video360p) {
+                const videoNormalId = `ytvid360_${baseId}`;
+                const videoDocId = `ytvid360doc_${baseId}`;
+                
+                btn.makeRow("🎬", "Video 360p", "Low quality video (Small size)", videoNormalId);
+                btn.makeRow("📄", "Video 360p (Doc)", "Video as document file", videoDocId);
+                
+                global.youtubeDownloads.set(videoNormalId, {
+                    type: 'video',
+                    quality: '360p',
+                    mode: 'normal',
+                    processUrl: video360p.mediaUrl,
+                    videoId: api.id,
+                    title: api.title,
+                    channel: api.userInfo.name
+                });
+                
+                global.youtubeDownloads.set(videoDocId, {
+                    type: 'video',
+                    quality: '360p',
+                    mode: 'document',
+                    processUrl: video360p.mediaUrl,
+                    videoId: api.id,
+                    title: api.title,
+                    channel: api.userInfo.name
+                });
+            }
+
+            // Audio buttons
+            if (audio48k) {
+                const audioNormalId = `ytaud48_${baseId}`;
+                const audioDocId = `ytaud48doc_${baseId}`;
+                
+                btn.makeRow("🎵", "Audio 48k", "Low quality audio (Small size)", audioNormalId);
+                btn.makeRow("📄", "Audio 48k (Doc)", "Audio as document file", audioDocId);
+                
+                global.youtubeDownloads.set(audioNormalId, {
+                    type: 'audio',
+                    quality: '48k',
+                    mode: 'normal',
+                    processUrl: audio48k.mediaUrl,
+                    videoId: api.id,
+                    title: api.title,
+                    channel: api.userInfo.name
+                });
+                
+                global.youtubeDownloads.set(audioDocId, {
+                    type: 'audio',
+                    quality: '48k',
+                    mode: 'document',
+                    processUrl: audio48k.mediaUrl,
+                    videoId: api.id,
+                    title: api.title,
+                    channel: api.userInfo.name
+                });
+            }
+
+            btn.addUrl("🔗 View on YouTube", youtubeUrl);
+
+            const sentMsg = await btn.send(from, conn, mek);
+
+            console.log(`[YOUTUBE] Button message sent. Base ID: ${baseId}`);
+        }
 
     } catch (error) {
-        console.error(error);
-        await conn.sendMessage(from, { react: { text: '❌', key: mek.key } });
-        await reply(`❌ *An error occurred:* ${error.message || "Error!"}`);
+        console.error("YouTube download error:", error);
+        reply(`❌ *Error downloading video!*\n\n${error.message}`);
     }
 });
 
+// ============================================
+// BUTTON HANDLERS - Using prefix matching
+// ============================================
 
-// Helper: download .m4a and convert to .mp3
-async function sendAsMp3(conn, from, downloadUrl, fileName, mek) {
-    const tempInput = path.join(tmpdir(), `${Date.now()}.m4a`);
-    const tempOutput = path.join(tmpdir(), `${Date.now()}.mp3`);
+// Handler for 360p video normal
+cmd({
+    pattern: "ytvid360_",
+    on: "body",
+    dontAddCommandList: true,
+    filename: __filename
+}, async (conn, mek, m, { from, reply, body }) => {
+    console.log(`[YOUTUBE HANDLER ytvid360_] Called with body: ${body}`);
+    if (!body || !global.youtubeDownloads) return;
 
-    // download m4a
-    const writer = fs.createWriteStream(tempInput);
-    const response = await axios({ url: downloadUrl, method: "GET", responseType: "stream" });
-    response.data.pipe(writer);
-    await new Promise((resolve, reject) => {
-        writer.on("finish", resolve);
-        writer.on("error", reject);
-    });
+    if (!body.startsWith('ytvid360_')) return;
 
-    // convert to mp3
-    await new Promise((resolve, reject) => {
-        ffmpeg(tempInput)
-            .toFormat('mp3')
-            .save(tempOutput)
-            .on('end', resolve)
-            .on('error', reject);
-    });
+    const downloadData = global.youtubeDownloads.get(body);
+    if (!downloadData) {
+        console.log(`[YOUTUBE HANDLER] No data found for: ${body}`);
+        return;
+    }
 
-    // send mp3
-    await conn.sendMessage(from, { 
-        audio: { url: tempOutput }, 
-        mimetype: "audio/mpeg", 
-        fileName: fileName 
-    }, { quoted: mek });
+    await handleYouTubeDownload(conn, mek, from, reply, downloadData);
+});
 
-    // cleanup
-    fs.unlinkSync(tempInput);
-    fs.unlinkSync(tempOutput);
-}
+// Handler for 360p video document
+cmd({
+    pattern: "ytvid360doc_",
+    on: "body",
+    dontAddCommandList: true,
+    filename: __filename
+}, async (conn, mek, m, { from, reply, body }) => {
+    console.log(`[YOUTUBE HANDLER ytvid360doc_] Called with body: ${body}`);
+    if (!body || !global.youtubeDownloads) return;
+
+    if (!body.startsWith('ytvid360doc_')) return;
+
+    const downloadData = global.youtubeDownloads.get(body);
+    if (!downloadData) return;
+
+    await handleYouTubeDownload(conn, mek, from, reply, downloadData);
+});
+
+// Handler for 48k audio normal
+cmd({
+    pattern: "ytaud48_",
+    on: "body",
+    dontAddCommandList: true,
+    filename: __filename
+}, async (conn, mek, m, { from, reply, body }) => {
+    console.log(`[YOUTUBE HANDLER ytaud48_] Called with body: ${body}`);
+    if (!body || !global.youtubeDownloads) return;
+
+    if (!body.startsWith('ytaud48_')) return;
+
+    const downloadData = global.youtubeDownloads.get(body);
+    if (!downloadData) return;
+
+    await handleYouTubeDownload(conn, mek, from, reply, downloadData);
+});
+
+// Handler for 48k audio document
+cmd({
+    pattern: "ytaud48doc_",
+    on: "body",
+    dontAddCommandList: true,
+    filename: __filename
+}, async (conn, mek, m, { from, reply, body }) => {
+    console.log(`[YOUTUBE HANDLER ytaud48doc_] Called with body: ${body}`);
+    if (!body || !global.youtubeDownloads) return;
+
+    if (!body.startsWith('ytaud48doc_')) return;
+
+    const downloadData = global.youtubeDownloads.get(body);
+    if (!downloadData) return;
+
+    await handleYouTubeDownload(conn, mek, from, reply, downloadData);
+});
