@@ -7,20 +7,54 @@ const { getBuffer, fetchJson } = require('../lib/functions');
 if (!global.youtubeDownloads) global.youtubeDownloads = new Map();
 if (!global.youtubeReplyHandlers) global.youtubeReplyHandlers = new Map();
 
+// Helper function to process download URL with retries
+async function processDownloadUrl(processUrl, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            console.log(`[YOUTUBE] Processing attempt ${i + 1}/${retries}: ${processUrl}`);
+            
+            const response = await fetchJson(processUrl);
+            
+            if (response && response.status === 'completed' && response.fileUrl) {
+                console.log(`[YOUTUBE] Process success: ${response.fileUrl.substring(0, 50)}...`);
+                return response;
+            }
+            
+            // If processing, wait and retry
+            if (response && response.status === 'processing') {
+                console.log(`[YOUTUBE] Still processing, waiting 2 seconds...`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                continue;
+            }
+            
+            console.log(`[YOUTUBE] Process response:`, response);
+            
+        } catch (error) {
+            console.error(`[YOUTUBE] Process attempt ${i + 1} failed:`, error.message);
+            if (i < retries - 1) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+    }
+    return null;
+}
+
 // Helper function to handle YouTube downloads
 async function handleYouTubeDownload(conn, mek, from, reply, downloadData) {
     try {
-        // First, fetch the actual download URL from the processing URL
-        await reply(`⏳ *Processing ${downloadData.type} download...*\n\n⏱️ This may take a few seconds...`);
+        await reply(`⏳ *Processing ${downloadData.type} download...*\n\n⏱️ Quality: ${downloadData.quality}\n⏱️ This may take 5-10 seconds...`);
         
-        const processResponse = await fetchJson(downloadData.processUrl);
+        // Process the download URL with retries
+        const processResponse = await processDownloadUrl(downloadData.processUrl, 5);
         
-        if (!processResponse || processResponse.status !== 'completed' || !processResponse.fileUrl) {
-            return reply(`❌ *Failed to process download!*\n\nThe file might be too large or the server is busy.`);
+        if (!processResponse || !processResponse.fileUrl) {
+            return reply(`❌ *Failed to process download!*\n\nThe server is busy or the file is too large. Please try again in a few moments.`);
         }
 
         const fileUrl = processResponse.fileUrl;
-        const fileSize = processResponse.fileSize || 'Unknown';
+        const fileSize = processResponse.fileSize || downloadData.fileSize || 'Unknown';
+        
+        console.log(`[YOUTUBE] Downloading from: ${fileUrl.substring(0, 60)}...`);
         
         if (downloadData.type === 'video') {
             if (downloadData.mode === 'document') {
@@ -89,6 +123,7 @@ function createReplyHandler(conn, messageID, from, mek) {
                         quality: downloadData.videoQuality, 
                         mode: 'normal', 
                         processUrl: downloadData.videoUrl,
+                        fileSize: downloadData.videoFileSize,
                         videoId: downloadData.videoId,
                         title: downloadData.title,
                         channel: downloadData.channel
@@ -100,6 +135,7 @@ function createReplyHandler(conn, messageID, from, mek) {
                         quality: downloadData.videoQuality, 
                         mode: 'document', 
                         processUrl: downloadData.videoUrl,
+                        fileSize: downloadData.videoFileSize,
                         videoId: downloadData.videoId,
                         title: downloadData.title,
                         channel: downloadData.channel
@@ -111,6 +147,7 @@ function createReplyHandler(conn, messageID, from, mek) {
                         quality: downloadData.audioQuality, 
                         mode: 'normal', 
                         processUrl: downloadData.audioUrl,
+                        fileSize: downloadData.audioFileSize,
                         videoId: downloadData.videoId,
                         title: downloadData.title,
                         channel: downloadData.channel
@@ -122,13 +159,13 @@ function createReplyHandler(conn, messageID, from, mek) {
                         quality: downloadData.audioQuality, 
                         mode: 'document', 
                         processUrl: downloadData.audioUrl,
+                        fileSize: downloadData.audioFileSize,
                         videoId: downloadData.videoId,
                         title: downloadData.title,
                         channel: downloadData.channel
                     };
                     break;
                 default:
-                    // Invalid reply - ignore
                     return;
             }
 
@@ -141,7 +178,6 @@ function createReplyHandler(conn, messageID, from, mek) {
                     (text) => conn.sendMessage(from, { text }, { quoted: mekInfo }), 
                     selectedDownload
                 );
-                // DO NOT remove handler - allow multiple replies
             }
 
         } catch (error) {
@@ -165,7 +201,7 @@ cmd({
         const messageType = config.MESSAGE_TYPE || 'button';
 
         if (!q || (!q.includes('youtube.com') && !q.includes('youtu.be'))) {
-            return reply(`❌ *Please provide a valid YouTube URL!*\n\n*Usage:* ${prefix}youtube <video-url>\n\n*Examples:*\n• ${prefix}yt https://youtu.be/xxxxx\n• ${prefix}youtube https://www.youtube.com/watch?v=xxxxx`);
+            return reply(`❌ *Please provide a valid YouTube URL!*\n\n*Usage:* ${prefix}youtube <video-url>`);
         }
 
         const youtubeUrl = q.trim();
@@ -180,10 +216,10 @@ cmd({
             response = await fetchJson(apiUrl);
         } catch (apiError) {
             console.error('[YOUTUBE] API Error:', apiError);
-            return reply(`❌ *API Error!*\n\nFailed to fetch video information. Please try again later.`);
+            return reply(`❌ *API Error!*\n\nFailed to fetch video information.`);
         }
 
-        // Parse response - handle nested structure
+        // Parse response
         let resultData;
         
         if (response && response.status === true && response.result) {
@@ -193,133 +229,124 @@ cmd({
                 resultData = response.result;
             }
         } else {
-            console.error('[YOUTUBE] Invalid response structure:', response);
-            return reply(`❌ *Failed to fetch video!*\n\nInvalid API response.`);
+            console.error('[YOUTUBE] Invalid response:', response);
+            return reply(`❌ *Failed to fetch video!*`);
         }
 
-        // Extract api info and media items
         const api = resultData.api || resultData;
         const mediaItems = resultData.mediaItems || api.mediaItems || [];
 
-        console.log(`[YOUTUBE] Media items count: ${mediaItems.length}`);
-
         if (!mediaItems || mediaItems.length === 0) {
-            return reply(`❌ *No media formats found!*\n\nThe video might be restricted or unavailable.`);
+            return reply(`❌ *No media formats found!*`);
         }
 
-        // Separate video and audio formats
+        // Separate formats
         const videoFormats = mediaItems.filter(item => item && item.type === 'Video');
         const audioFormats = mediaItems.filter(item => item && item.type === 'Audio');
 
-        console.log(`[YOUTUBE] Video formats: ${videoFormats.length}, Audio formats: ${audioFormats.length}`);
+        console.log(`[YOUTUBE] Videos: ${videoFormats.length}, Audios: ${audioFormats.length}`);
 
-        // Quality priority order for videos (prefer lower qualities for faster download)
+        // Quality priority (prefer smaller sizes)
         const videoQualityPriority = ['144p', '240p', '360p', '480p', '720p', 'HD', 'FHD', '1080p'];
         
-        // Find best video format (prefer 360p or lower if available)
         let selectedVideo = null;
         let selectedVideoQuality = '';
         
-        // First try to find 360p or lower
         for (const quality of videoQualityPriority) {
-            const found = videoFormats.find(v => v.mediaQuality === quality || v.mediaQuality?.toLowerCase() === quality.toLowerCase());
+            const found = videoFormats.find(v => 
+                v.mediaQuality?.toLowerCase() === quality.toLowerCase()
+            );
             if (found) {
                 selectedVideo = found;
                 selectedVideoQuality = quality;
-                console.log(`[YOUTUBE] Selected video quality: ${quality}`);
+                console.log(`[YOUTUBE] Selected video: ${quality} - ${found.mediaFileSize}`);
                 break;
             }
         }
         
-        // If no quality matched, take the first video (lowest quality usually)
+        // Fallback to smallest video
         if (!selectedVideo && videoFormats.length > 0) {
-            // Sort by file size to get smallest
-            const sortedVideos = [...videoFormats].sort((a, b) => {
-                const sizeA = parseFloat(a.mediaFileSize?.replace(' MB', '') || 0);
-                const sizeB = parseFloat(b.mediaFileSize?.replace(' MB', '') || 0);
+            const sorted = [...videoFormats].sort((a, b) => {
+                const sizeA = parseFloat(a.mediaFileSize?.replace(/[^0-9.]/g, '') || 999);
+                const sizeB = parseFloat(b.mediaFileSize?.replace(/[^0-9.]/g, '') || 999);
                 return sizeA - sizeB;
             });
-            selectedVideo = sortedVideos[0];
+            selectedVideo = sorted[0];
             selectedVideoQuality = selectedVideo.mediaQuality || 'Unknown';
-            console.log(`[YOUTUBE] Selected lowest size video: ${selectedVideoQuality} (${selectedVideo.mediaFileSize})`);
         }
 
-        // Quality priority for audio (prefer 48k, fallback to 128k)
-        let selectedAudio = audioFormats.find(a => a.mediaQuality === '48K' || a.mediaQuality === '48k');
+        // Audio selection
+        let selectedAudio = audioFormats.find(a => 
+            a.mediaQuality?.toLowerCase() === '48k'
+        );
         let selectedAudioQuality = '48k';
         
         if (!selectedAudio) {
-            selectedAudio = audioFormats.find(a => a.mediaQuality === '128K' || a.mediaQuality === '128k');
+            selectedAudio = audioFormats.find(a => 
+                a.mediaQuality?.toLowerCase() === '128k'
+            );
             selectedAudioQuality = '128k';
         }
         
-        // Fallback to first audio if no quality matched
         if (!selectedAudio && audioFormats.length > 0) {
             selectedAudio = audioFormats[0];
             selectedAudioQuality = selectedAudio.mediaQuality || 'Unknown';
         }
 
-        console.log(`[YOUTUBE] Selected:`, {
-            video: selectedVideo ? { quality: selectedVideoQuality, size: selectedVideo.mediaFileSize } : null,
-            audio: selectedAudio ? { quality: selectedAudioQuality, size: selectedAudio.mediaFileSize } : null
-        });
-
         if (!selectedVideo && !selectedAudio) {
-            return reply(`❌ *No downloadable formats found!*\n\nAvailable: ${mediaItems.map(m => `${m?.type}-${m?.mediaQuality}`).join(', ')}`);
+            return reply(`❌ *No downloadable formats found!*`);
         }
 
-        // Extract info safely
+        // Build info
         const title = api.title || 'Unknown Title';
-        const channelName = api.userInfo?.name || api.userInfo?.username || api.channel || 'Unknown Channel';
+        const channelName = api.userInfo?.name || 'Unknown Channel';
         const videoId = api.id || 'unknown';
-        const thumbnail = api.imagePreviewUrl || api.thumbnail || (videoId !== 'unknown' ? `https://i.ytimg.com/vi/${videoId}/sddefault.jpg` : 'https://i.ytimg.com/vi/default.jpg');
-        const duration = selectedVideo?.mediaDuration || selectedAudio?.mediaDuration || api.duration || 'Unknown';
-        const views = api.mediaStats?.viewsCount || api.views || 'Unknown';
-        const dateJoined = api.userInfo?.dateJoined || 'Unknown';
-        const description = api.description ? (api.description.length > 200 ? api.description.substring(0, 200) + '...' : api.description) : 'No description';
+        const thumbnail = api.imagePreviewUrl || `https://i.ytimg.com/vi/${videoId}/sddefault.jpg`;
+        const duration = selectedVideo?.mediaDuration || selectedAudio?.mediaDuration || 'Unknown';
+        const views = api.mediaStats?.viewsCount || 'Unknown';
 
         const infoText = `🎬 *YouTube Video Info*\n\n` +
             `📌 *Title:* ${title}\n` +
             `👤 *Channel:* ${channelName}\n` +
             `⏱️ *Duration:* ${duration}\n` +
-            `👁️ *Views:* ${views}\n` +
-            `📅 *Posted:* ${dateJoined}\n\n` +
-            `📝 *Description:*\n${description}`;
+            `👁️ *Views:* ${views}\n\n` +
+            `📝 *Description:*\n${api.description ? api.description.substring(0, 150) + '...' : 'No description'}`;
 
-        // Store download URLs safely
+        // Store data with file sizes
         const downloadData = {
             videoUrl: selectedVideo?.mediaUrl || null,
             videoQuality: selectedVideoQuality,
+            videoFileSize: selectedVideo?.mediaFileSize || 'Unknown',
             audioUrl: selectedAudio?.mediaUrl || null,
             audioQuality: selectedAudioQuality,
+            audioFileSize: selectedAudio?.mediaFileSize || 'Unknown',
             videoId: videoId,
             title: title,
             channel: channelName,
             thumbnail: thumbnail
         };
 
-        console.log(`[YOUTUBE] Stored URLs:`, {
-            video: !!downloadData.videoUrl,
-            audio: !!downloadData.audioUrl
+        console.log(`[YOUTUBE] Ready:`, {
+            video: selectedVideoQuality,
+            audio: selectedAudioQuality
         });
 
         if (messageType === 'text') {
-            // TEXT MODE - Multi Reply Support
             let optionsText = `\n\n📥 *Reply with your choice:*\n`;
             
             if (selectedVideo) {
-                optionsText += `\n🎬 *Video Options (${selectedVideoQuality} - ${selectedVideo.mediaFileSize || 'Unknown size'}):*\n`;
-                optionsText += `🎬 *1.1* - Video ${selectedVideoQuality} (Normal)\n`;
-                optionsText += `📄 *1.2* - Video ${selectedVideoQuality} (Document)\n`;
+                optionsText += `\n🎬 *Video (${selectedVideoQuality} | ${selectedVideo.mediaFileSize}):*\n`;
+                optionsText += `🎬 *1.1* - Video ${selectedVideoQuality}\n`;
+                optionsText += `📄 *1.2* - Video ${selectedVideoQuality} (Doc)\n`;
             }
             
             if (selectedAudio) {
-                optionsText += `\n🎵 *Audio Options (${selectedAudioQuality} - ${selectedAudio.mediaFileSize || 'Unknown size'}):*\n`;
-                optionsText += `🎵 *2.1* - Audio ${selectedAudioQuality} (Normal)\n`;
-                optionsText += `📄 *2.2* - Audio ${selectedAudioQuality} (Document)\n`;
+                optionsText += `\n🎵 *Audio (${selectedAudioQuality} | ${selectedAudio.mediaFileSize}):*\n`;
+                optionsText += `🎵 *2.1* - Audio ${selectedAudioQuality}\n`;
+                optionsText += `📄 *2.2* - Audio ${selectedAudioQuality} (Doc)\n`;
             }
             
-            optionsText += `\n⏳ *Active for 3 minutes - You can reply multiple times!*\n`;
+            optionsText += `\n⏳ *Active for 3 minutes*\n`;
             optionsText += `${config.FOOTER || "POWERED BY SRI-BOT 🇱🇰"}`;
 
             const sentMsg = await conn.sendMessage(from, { 
@@ -338,27 +365,21 @@ cmd({
             }, { quoted: mek });
 
             const messageID = sentMsg.key.id;
-            
-            // Store all download data
             global.youtubeDownloads.set(messageID, downloadData);
 
-            // Create and register reply handler
             const replyHandler = createReplyHandler(conn, messageID, from, mek);
             global.youtubeReplyHandlers.set(messageID, replyHandler);
             conn.ev.on('messages.upsert', replyHandler);
 
-            console.log(`[YOUTUBE] Text mode handler registered for message: ${messageID}`);
-
-            // Set timeout to remove handler after 3 minutes
+            // Timeout
             setTimeout(() => {
                 if (global.youtubeReplyHandlers.has(messageID)) {
                     const handler = global.youtubeReplyHandlers.get(messageID);
                     conn.ev.off('messages.upsert', handler);
                     global.youtubeReplyHandlers.delete(messageID);
                     global.youtubeDownloads.delete(messageID);
-                    console.log(`[YOUTUBE] Handler expired for message: ${messageID}`);
                 }
-            }, 180000); // 3 minutes
+            }, 180000);
 
         } else {
             // BUTTON MODE
@@ -369,62 +390,64 @@ cmd({
             btn.setFooter(`Powered by ${botName} 🇱🇰`);
 
             btn.addSelection("📥 Select Download Option");
-            btn.makeSection("⬇️ Download Options", "Choose format and quality");
+            btn.makeSection("⬇️ Download Options", "Available formats");
 
             const baseId = Date.now().toString();
 
-            // Video buttons
             if (selectedVideo) {
-                const videoNormalId = `ytvid_${baseId}`;
-                const videoDocId = `ytviddoc_${baseId}`;
+                const vidNormal = `ytvid_${baseId}`;
+                const vidDoc = `ytviddoc_${baseId}`;
                 
-                btn.makeRow("🎬", `Video ${selectedVideoQuality}`, `Size: ${selectedVideo.mediaFileSize || 'Unknown'}`, videoNormalId);
-                btn.makeRow("📄", `Video ${selectedVideoQuality} (Doc)`, "As document file", videoDocId);
+                btn.makeRow("🎬", `Video ${selectedVideoQuality}`, `${selectedVideo.mediaFileSize}`, vidNormal);
+                btn.makeRow("📄", `Video ${selectedVideoQuality} (Doc)`, "Document format", vidDoc);
                 
-                global.youtubeDownloads.set(videoNormalId, {
+                global.youtubeDownloads.set(vidNormal, {
                     type: 'video',
                     quality: selectedVideoQuality,
                     mode: 'normal',
                     processUrl: selectedVideo.mediaUrl,
+                    fileSize: selectedVideo.mediaFileSize,
                     videoId: videoId,
                     title: title,
                     channel: channelName
                 });
                 
-                global.youtubeDownloads.set(videoDocId, {
+                global.youtubeDownloads.set(vidDoc, {
                     type: 'video',
                     quality: selectedVideoQuality,
                     mode: 'document',
                     processUrl: selectedVideo.mediaUrl,
+                    fileSize: selectedVideo.mediaFileSize,
                     videoId: videoId,
                     title: title,
                     channel: channelName
                 });
             }
 
-            // Audio buttons
             if (selectedAudio) {
-                const audioNormalId = `ytaud_${baseId}`;
-                const audioDocId = `ytauddoc_${baseId}`;
+                const audNormal = `ytaud_${baseId}`;
+                const audDoc = `ytauddoc_${baseId}`;
                 
-                btn.makeRow("🎵", `Audio ${selectedAudioQuality}`, `Size: ${selectedAudio.mediaFileSize || 'Unknown'}`, audioNormalId);
-                btn.makeRow("📄", `Audio ${selectedAudioQuality} (Doc)`, "As document file", audioDocId);
+                btn.makeRow("🎵", `Audio ${selectedAudioQuality}`, `${selectedAudio.mediaFileSize}`, audNormal);
+                btn.makeRow("📄", `Audio ${selectedAudioQuality} (Doc)`, "Document format", audDoc);
                 
-                global.youtubeDownloads.set(audioNormalId, {
+                global.youtubeDownloads.set(audNormal, {
                     type: 'audio',
                     quality: selectedAudioQuality,
                     mode: 'normal',
                     processUrl: selectedAudio.mediaUrl,
+                    fileSize: selectedAudio.mediaFileSize,
                     videoId: videoId,
                     title: title,
                     channel: channelName
                 });
                 
-                global.youtubeDownloads.set(audioDocId, {
+                global.youtubeDownloads.set(audDoc, {
                     type: 'audio',
                     quality: selectedAudioQuality,
                     mode: 'document',
                     processUrl: selectedAudio.mediaUrl,
+                    fileSize: selectedAudio.mediaFileSize,
                     videoId: videoId,
                     title: title,
                     channel: channelName
@@ -432,57 +455,40 @@ cmd({
             }
 
             btn.addUrl("🔗 View on YouTube", youtubeUrl);
-
-            const sentMsg = await btn.send(from, conn, mek);
-
-            console.log(`[YOUTUBE] Button message sent. Base ID: ${baseId}`);
+            await btn.send(from, conn, mek);
         }
 
     } catch (error) {
-        console.error("[YOUTUBE] Fatal error:", error);
-        reply(`❌ *Error downloading video!*\n\n${error.message}`);
+        console.error("[YOUTUBE] Error:", error);
+        reply(`❌ *Error!*\n\n${error.message}`);
     }
 });
 
-// ============================================
-// BUTTON HANDLERS - Using prefix matching
-// ============================================
-
-// Handler for video buttons
+// Button handlers
 cmd({
     pattern: "ytvid_",
     on: "body",
     dontAddCommandList: true,
     filename: __filename
 }, async (conn, mek, m, { from, reply, body }) => {
-    console.log(`[YOUTUBE HANDLER ytvid_] Called with body: ${body}`);
-    if (!body || !global.youtubeDownloads) return;
-
-    if (!body.startsWith('ytvid_')) return;
-
-    const downloadData = global.youtubeDownloads.get(body);
-    if (!downloadData) {
-        console.log(`[YOUTUBE HANDLER] No data found for: ${body}`);
-        return;
-    }
-
-    await handleYouTubeDownload(conn, mek, from, reply, downloadData);
+    if (!body || !global.youtubeDownloads || !body.startsWith('ytvid_')) return;
+    
+    const data = global.youtubeDownloads.get(body);
+    if (!data) return;
+    
+    await handleYouTubeDownload(conn, mek, from, reply, data);
 });
 
-// Handler for audio buttons
 cmd({
     pattern: "ytaud_",
     on: "body",
     dontAddCommandList: true,
     filename: __filename
 }, async (conn, mek, m, { from, reply, body }) => {
-    console.log(`[YOUTUBE HANDLER ytaud_] Called with body: ${body}`);
-    if (!body || !global.youtubeDownloads) return;
-
-    if (!body.startsWith('ytaud_')) return;
-
-    const downloadData = global.youtubeDownloads.get(body);
-    if (!downloadData) return;
-
-    await handleYouTubeDownload(conn, mek, from, reply, downloadData);
+    if (!body || !global.youtubeDownloads || !body.startsWith('ytaud_')) return;
+    
+    const data = global.youtubeDownloads.get(body);
+    if (!data) return;
+    
+    await handleYouTubeDownload(conn, mek, from, reply, data);
 });
