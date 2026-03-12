@@ -183,64 +183,92 @@ cmd({
             return reply(`❌ *API Error!*\n\nFailed to fetch video information. Please try again later.`);
         }
 
-        console.log(`[YOUTUBE] API Response:`, JSON.stringify(response, null, 2));
+        console.log(`[YOUTUBE] API Response received`);
 
-        // Check response structure - handle both possible formats
-        let data, api, mediaItems;
+        // Parse response - handle nested structure
+        let resultData;
         
         if (response && response.status === true && response.result) {
-            // Format 1: { status: true, result: { ... } }
             if (response.result.result) {
-                data = response.result.result;
+                resultData = response.result.result;
             } else {
-                data = response.result;
+                resultData = response.result;
             }
-        } else if (response && response.status === "completed") {
-            // Direct response format
-            data = response;
         } else {
-            console.error('[YOUTUBE] Invalid response:', response);
-            return reply(`❌ *Failed to fetch video!*\n\nInvalid API response. The video might be private, deleted, or unavailable.`);
+            console.error('[YOUTUBE] Invalid response structure:', response);
+            return reply(`❌ *Failed to fetch video!*\n\nInvalid API response.`);
         }
 
-        // Extract data safely
-        api = data.api || data;
-        mediaItems = data.mediaItems || (api.mediaItems || []);
+        // Extract api info and media items
+        const api = resultData.api || resultData;
+        const mediaItems = resultData.mediaItems || api.mediaItems || [];
 
-        if (!api || !mediaItems || !Array.isArray(mediaItems)) {
-            console.error('[YOUTUBE] Missing data:', { api: !!api, mediaItems: !!mediaItems });
-            return reply(`❌ *Failed to parse video data!*\n\nThe API response format has changed or the video is unavailable.`);
+        console.log(`[YOUTUBE] Media items count: ${mediaItems.length}`);
+        console.log(`[YOUTUBE] Media items:`, JSON.stringify(mediaItems.map(m => ({ type: m?.type, quality: m?.mediaQuality, hasUrl: !!m?.mediaUrl })), null, 2));
+
+        if (!mediaItems || mediaItems.length === 0) {
+            return reply(`❌ *No media formats found!*\n\nThe video might be restricted or unavailable.`);
         }
 
-        // Find 360p video (lowest quality for video)
-        const video360p = mediaItems.find(item => 
-            item && item.type === 'Video' && item.mediaQuality === '360p'
+        // Find video formats - check all possible quality indicators
+        const videoFormats = mediaItems.filter(item => 
+            item && item.type === 'Video'
         );
+
+        console.log(`[YOUTUBE] Video formats found: ${videoFormats.length}`);
+        videoFormats.forEach((v, i) => {
+            console.log(`  [${i}] Quality: ${v.mediaQuality}, Res: ${v.mediaRes}, URL: ${v.mediaUrl?.substring(0, 50)}...`);
+        });
+
+        // Get 360p or fallback to any available video quality
+        let video360p = videoFormats.find(item => item.mediaQuality === '360p');
         
-        // Find 48k audio (lowest quality for audio - smallest size)
-        const audio48k = mediaItems.find(item => 
-            item && item.type === 'Audio' && item.mediaQuality === '48K'
+        // If no 360p, try other qualities in order of preference
+        if (!video360p) {
+            video360p = videoFormats.find(item => item.mediaQuality === '480p') ||
+                       videoFormats.find(item => item.mediaQuality === '720p') ||
+                       videoFormats.find(item => item.mediaQuality === 'HD') ||
+                       videoFormats.find(item => item.mediaQuality === 'FHD') ||
+                       videoFormats.find(item => item.mediaQuality === '1080p') ||
+                       videoFormats[0]; // fallback to first video
+        }
+
+        // Find audio formats
+        const audioFormats = mediaItems.filter(item => 
+            item && item.type === 'Audio'
         );
 
-        console.log(`[YOUTUBE] Found formats:`, {
-            video360p: !!video360p,
-            audio48k: !!audio48k,
-            totalItems: mediaItems.length
+        console.log(`[YOUTUBE] Audio formats found: ${audioFormats.length}`);
+        audioFormats.forEach((a, i) => {
+            console.log(`  [${i}] Quality: ${a.mediaQuality}, URL: ${a.mediaUrl?.substring(0, 50)}...`);
+        });
+
+        // Get 48k or fallback to any available audio
+        let audio48k = audioFormats.find(item => item.mediaQuality === '48K' || item.mediaQuality === '48k');
+        
+        if (!audio48k) {
+            audio48k = audioFormats.find(item => item.mediaQuality === '128K' || item.mediaQuality === '128k') ||
+                      audioFormats[0]; // fallback to first audio
+        }
+
+        console.log(`[YOUTUBE] Selected:`, {
+            video360p: video360p ? { quality: video360p.mediaQuality, hasUrl: !!video360p.mediaUrl } : null,
+            audio48k: audio48k ? { quality: audio48k.mediaQuality, hasUrl: !!audio48k.mediaUrl } : null
         });
 
         if (!video360p && !audio48k) {
-            return reply(`❌ *No downloadable formats found!*\n\nThe video might be restricted, age-restricted, or unavailable.`);
+            return reply(`❌ *No downloadable formats found!*\n\nAvailable formats: ${mediaItems.map(m => `${m?.type}-${m?.mediaQuality}`).join(', ')}`);
         }
 
-        // Safely extract info with fallbacks
+        // Extract info safely
         const title = api.title || 'Unknown Title';
-        const channelName = api.userInfo?.name || api.channel || 'Unknown Channel';
+        const channelName = api.userInfo?.name || api.userInfo?.username || api.channel || 'Unknown Channel';
         const videoId = api.id || 'unknown';
-        const thumbnail = api.imagePreviewUrl || api.thumbnail || 'https://i.ytimg.com/vi/default.jpg';
-        const duration = video360p?.mediaDuration || audio48k?.mediaDuration || 'Unknown';
+        const thumbnail = api.imagePreviewUrl || api.thumbnail || (videoId !== 'unknown' ? `https://i.ytimg.com/vi/${videoId}/sddefault.jpg` : 'https://i.ytimg.com/vi/default.jpg');
+        const duration = video360p?.mediaDuration || audio48k?.mediaDuration || api.duration || 'Unknown';
         const views = api.mediaStats?.viewsCount || api.views || 'Unknown';
         const dateJoined = api.userInfo?.dateJoined || 'Unknown';
-        const description = api.description ? api.description.substring(0, 200) + '...' : 'No description';
+        const description = api.description ? (api.description.length > 200 ? api.description.substring(0, 200) + '...' : api.description) : 'No description';
 
         const infoText = `🎬 *YouTube Video Info*\n\n` +
             `📌 *Title:* ${title}\n` +
@@ -260,20 +288,27 @@ cmd({
             thumbnail: thumbnail
         };
 
+        console.log(`[YOUTUBE] Stored URLs:`, {
+            video: !!downloadData.video360pUrl,
+            audio: !!downloadData.audio48kUrl
+        });
+
         if (messageType === 'text') {
             // TEXT MODE - Multi Reply Support
             let optionsText = `\n\n📥 *Reply with your choice:*\n`;
             
             if (video360p) {
-                optionsText += `\n🎬 *Video Options:*\n`;
-                optionsText += `🎬 *1.1* - Video 360p (Normal)\n`;
-                optionsText += `📄 *1.2* - Video 360p (Document)\n`;
+                const quality = video360p.mediaQuality || '360p';
+                optionsText += `\n🎬 *Video Options (${quality}):*\n`;
+                optionsText += `🎬 *1.1* - Video ${quality} (Normal)\n`;
+                optionsText += `📄 *1.2* - Video ${quality} (Document)\n`;
             }
             
             if (audio48k) {
-                optionsText += `\n🎵 *Audio Options:*\n`;
-                optionsText += `🎵 *2.1* - Audio 48k (Normal)\n`;
-                optionsText += `📄 *2.2* - Audio 48k (Document)\n`;
+                const quality = audio48k.mediaQuality || '48k';
+                optionsText += `\n🎵 *Audio Options (${quality}):*\n`;
+                optionsText += `🎵 *2.1* - Audio ${quality} (Normal)\n`;
+                optionsText += `📄 *2.2* - Audio ${quality} (Document)\n`;
             }
             
             optionsText += `\n⏳ *Active for 3 minutes - You can reply multiple times!*\n`;
@@ -332,15 +367,16 @@ cmd({
 
             // Video buttons
             if (video360p) {
-                const videoNormalId = `ytvid360_${baseId}`;
-                const videoDocId = `ytvid360doc_${baseId}`;
+                const quality = video360p.mediaQuality || '360p';
+                const videoNormalId = `ytvid_${quality}_${baseId}`;
+                const videoDocId = `ytvid_${quality}doc_${baseId}`;
                 
-                btn.makeRow("🎬", "Video 360p", "Low quality video (Small size)", videoNormalId);
-                btn.makeRow("📄", "Video 360p (Doc)", "Video as document file", videoDocId);
+                btn.makeRow("🎬", `Video ${quality}`, "Download video", videoNormalId);
+                btn.makeRow("📄", `Video ${quality} (Doc)`, "Video as document", videoDocId);
                 
                 global.youtubeDownloads.set(videoNormalId, {
                     type: 'video',
-                    quality: '360p',
+                    quality: quality,
                     mode: 'normal',
                     processUrl: video360p.mediaUrl,
                     videoId: videoId,
@@ -350,7 +386,7 @@ cmd({
                 
                 global.youtubeDownloads.set(videoDocId, {
                     type: 'video',
-                    quality: '360p',
+                    quality: quality,
                     mode: 'document',
                     processUrl: video360p.mediaUrl,
                     videoId: videoId,
@@ -361,15 +397,16 @@ cmd({
 
             // Audio buttons
             if (audio48k) {
-                const audioNormalId = `ytaud48_${baseId}`;
-                const audioDocId = `ytaud48doc_${baseId}`;
+                const quality = audio48k.mediaQuality || '48k';
+                const audioNormalId = `ytaud_${quality}_${baseId}`;
+                const audioDocId = `ytaud_${quality}doc_${baseId}`;
                 
-                btn.makeRow("🎵", "Audio 48k", "Low quality audio (Small size)", audioNormalId);
-                btn.makeRow("📄", "Audio 48k (Doc)", "Audio as document file", audioDocId);
+                btn.makeRow("🎵", `Audio ${quality}`, "Download audio", audioNormalId);
+                btn.makeRow("📄", `Audio ${quality} (Doc)`, "Audio as document", audioDocId);
                 
                 global.youtubeDownloads.set(audioNormalId, {
                     type: 'audio',
-                    quality: '48k',
+                    quality: quality,
                     mode: 'normal',
                     processUrl: audio48k.mediaUrl,
                     videoId: videoId,
@@ -379,7 +416,7 @@ cmd({
                 
                 global.youtubeDownloads.set(audioDocId, {
                     type: 'audio',
-                    quality: '48k',
+                    quality: quality,
                     mode: 'document',
                     processUrl: audio48k.mediaUrl,
                     videoId: videoId,
@@ -405,17 +442,17 @@ cmd({
 // BUTTON HANDLERS - Using prefix matching
 // ============================================
 
-// Handler for 360p video normal
+// Handler for video buttons (dynamic quality)
 cmd({
-    pattern: "ytvid360_",
+    pattern: "ytvid_",
     on: "body",
     dontAddCommandList: true,
     filename: __filename
 }, async (conn, mek, m, { from, reply, body }) => {
-    console.log(`[YOUTUBE HANDLER ytvid360_] Called with body: ${body}`);
+    console.log(`[YOUTUBE HANDLER ytvid_] Called with body: ${body}`);
     if (!body || !global.youtubeDownloads) return;
 
-    if (!body.startsWith('ytvid360_')) return;
+    if (!body.startsWith('ytvid_')) return;
 
     const downloadData = global.youtubeDownloads.get(body);
     if (!downloadData) {
@@ -426,53 +463,17 @@ cmd({
     await handleYouTubeDownload(conn, mek, from, reply, downloadData);
 });
 
-// Handler for 360p video document
+// Handler for audio buttons (dynamic quality)
 cmd({
-    pattern: "ytvid360doc_",
+    pattern: "ytaud_",
     on: "body",
     dontAddCommandList: true,
     filename: __filename
 }, async (conn, mek, m, { from, reply, body }) => {
-    console.log(`[YOUTUBE HANDLER ytvid360doc_] Called with body: ${body}`);
+    console.log(`[YOUTUBE HANDLER ytaud_] Called with body: ${body}`);
     if (!body || !global.youtubeDownloads) return;
 
-    if (!body.startsWith('ytvid360doc_')) return;
-
-    const downloadData = global.youtubeDownloads.get(body);
-    if (!downloadData) return;
-
-    await handleYouTubeDownload(conn, mek, from, reply, downloadData);
-});
-
-// Handler for 48k audio normal
-cmd({
-    pattern: "ytaud48_",
-    on: "body",
-    dontAddCommandList: true,
-    filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
-    console.log(`[YOUTUBE HANDLER ytaud48_] Called with body: ${body}`);
-    if (!body || !global.youtubeDownloads) return;
-
-    if (!body.startsWith('ytaud48_')) return;
-
-    const downloadData = global.youtubeDownloads.get(body);
-    if (!downloadData) return;
-
-    await handleYouTubeDownload(conn, mek, from, reply, downloadData);
-});
-
-// Handler for 48k audio document
-cmd({
-    pattern: "ytaud48doc_",
-    on: "body",
-    dontAddCommandList: true,
-    filename: __filename
-}, async (conn, mek, m, { from, reply, body }) => {
-    console.log(`[YOUTUBE HANDLER ytaud48doc_] Called with body: ${body}`);
-    if (!body || !global.youtubeDownloads) return;
-
-    if (!body.startsWith('ytaud48doc_')) return;
+    if (!body.startsWith('ytaud_')) return;
 
     const downloadData = global.youtubeDownloads.get(body);
     if (!downloadData) return;
