@@ -1,60 +1,77 @@
 const { cmd } = require('../command');
 const { Button } = require('../lib/button');
 const config = require('../config');
-const { getBuffer, fetchJson } = require('../lib/functions');
+const { fetchJson } = require('../lib/functions');
 
 // Store YouTube downloads globally
 if (!global.youtubeDownloads) global.youtubeDownloads = new Map();
 if (!global.youtubeReplyHandlers) global.youtubeReplyHandlers = new Map();
 
-// Helper function to process download URL with retries
-async function processDownloadUrl(processUrl, retries = 3) {
-    for (let i = 0; i < retries; i++) {
+// Helper function to process download URL with status checking
+async function processDownloadUrl(processUrl, maxAttempts = 30) {
+    for (let i = 0; i < maxAttempts; i++) {
         try {
-            console.log(`[YOUTUBE] Processing attempt ${i + 1}/${retries}: ${processUrl}`);
+            console.log(`[YOUTUBE] Checking status attempt ${i + 1}/${maxAttempts}`);
             
             const response = await fetchJson(processUrl);
+            console.log(`[YOUTUBE] Status: ${response?.status}, Progress: ${response?.progress}`);
             
-            if (response && response.status === 'completed' && response.fileUrl) {
-                console.log(`[YOUTUBE] Process success: ${response.fileUrl.substring(0, 50)}...`);
+            // If completed, return immediately
+            if (response && response.status === 'completed' && response.fileUrl && response.fileUrl !== 'Waiting...') {
+                console.log(`[YOUTUBE] Download ready: ${response.fileUrl.substring(0, 50)}...`);
                 return response;
             }
             
-            // If processing, wait and retry
-            if (response && response.status === 'processing') {
-                console.log(`[YOUTUBE] Still processing, waiting 2 seconds...`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
+            // If still processing or queued, wait and retry
+            if (response && (response.status === 'processing' || response.status === 'queued')) {
+                const percent = response.percent || response.progress || '0%';
+                console.log(`[YOUTUBE] Still ${response.status}... ${percent}`);
+                
+                // Wait 3 seconds between checks
+                await new Promise(resolve => setTimeout(resolve, 3000));
                 continue;
             }
             
-            console.log(`[YOUTUBE] Process response:`, response);
+            // If error status
+            if (response && response.status === 'error') {
+                console.error(`[YOUTUBE] Processing error:`, response);
+                return null;
+            }
             
         } catch (error) {
-            console.error(`[YOUTUBE] Process attempt ${i + 1} failed:`, error.message);
-            if (i < retries - 1) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
+            console.error(`[YOUTUBE] Status check attempt ${i + 1} failed:`, error.message);
+            if (i < maxAttempts - 1) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
             }
         }
     }
+    
+    console.error(`[YOUTUBE] Max attempts reached, download not ready`);
     return null;
 }
 
 // Helper function to handle YouTube downloads
 async function handleYouTubeDownload(conn, mek, from, reply, downloadData) {
     try {
-        await reply(`⏳ *Processing ${downloadData.type} download...*\n\n⏱️ Quality: ${downloadData.quality}\n⏱️ This may take 5-10 seconds...`);
+        // Check file size limit (100MB)
+        const fileSizeMB = parseFloat(downloadData.fileSize?.replace(/[^0-9.]/g, '') || 0);
+        if (fileSizeMB > 100) {
+            return reply(`❌ *File too large!*\n\nThis video is ${downloadData.fileSize} which exceeds the 100MB limit.\nPlease try a lower quality or a shorter video.`);
+        }
+
+        await reply(`⏳ *Processing ${downloadData.type} download...*\n\n📊 Quality: ${downloadData.quality}\n📊 Size: ${downloadData.fileSize}\n⏱️ This may take 10-30 seconds...`);
         
-        // Process the download URL with retries
-        const processResponse = await processDownloadUrl(downloadData.processUrl, 5);
+        // Process the download URL with status polling
+        const processResponse = await processDownloadUrl(downloadData.processUrl, 30);
         
-        if (!processResponse || !processResponse.fileUrl) {
-            return reply(`❌ *Failed to process download!*\n\nThe server is busy or the file is too large. Please try again in a few moments.`);
+        if (!processResponse || !processResponse.fileUrl || processResponse.fileUrl === 'Waiting...') {
+            return reply(`❌ *Failed to process download!*\n\nThe server is taking too long or the file is unavailable. Please try again later.`);
         }
 
         const fileUrl = processResponse.fileUrl;
-        const fileSize = processResponse.fileSize || downloadData.fileSize || 'Unknown';
+        const finalSize = processResponse.fileSize || processResponse.estimatedFileSize || downloadData.fileSize || 'Unknown';
         
-        console.log(`[YOUTUBE] Downloading from: ${fileUrl.substring(0, 60)}...`);
+        console.log(`[YOUTUBE] Sending file: ${fileUrl.substring(0, 60)}...`);
         
         if (downloadData.type === 'video') {
             if (downloadData.mode === 'document') {
@@ -62,12 +79,12 @@ async function handleYouTubeDownload(conn, mek, from, reply, downloadData) {
                     document: { url: fileUrl },
                     mimetype: 'video/mp4',
                     fileName: `YouTube_${downloadData.videoId}_${downloadData.quality}_${Date.now()}.mp4`,
-                    caption: `🎬 *YouTube Video (${downloadData.quality} - Document)*\n\n📌 *Title:* ${downloadData.title}\n👤 *Channel:* ${downloadData.channel}\n📊 *Size:* ${fileSize}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                    caption: `🎬 *YouTube Video (${downloadData.quality} - Document)*\n\n📌 *Title:* ${downloadData.title}\n👤 *Channel:* ${downloadData.channel}\n📊 *Size:* ${finalSize}\n\n📥 Downloaded via ${config.BOT_NAME}`
                 }, { quoted: mek });
             } else {
                 await conn.sendMessage(from, {
                     video: { url: fileUrl },
-                    caption: `🎬 *YouTube Video (${downloadData.quality})*\n\n📌 *Title:* ${downloadData.title}\n👤 *Channel:* ${downloadData.channel}\n📊 *Size:* ${fileSize}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                    caption: `🎬 *YouTube Video (${downloadData.quality})*\n\n📌 *Title:* ${downloadData.title}\n👤 *Channel:* ${downloadData.channel}\n📊 *Size:* ${finalSize}\n\n📥 Downloaded via ${config.BOT_NAME}`
                 }, { quoted: mek });
             }
         } else if (downloadData.type === 'audio') {
@@ -76,7 +93,7 @@ async function handleYouTubeDownload(conn, mek, from, reply, downloadData) {
                     document: { url: fileUrl },
                     mimetype: 'audio/mpeg',
                     fileName: `YouTube_${downloadData.videoId}_Audio_${Date.now()}.mp3`,
-                    caption: `🎵 *YouTube Audio (Document)*\n\n📌 *Title:* ${downloadData.title}\n👤 *Channel:* ${downloadData.channel}\n📊 *Size:* ${fileSize}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                    caption: `🎵 *YouTube Audio (Document)*\n\n📌 *Title:* ${downloadData.title}\n👤 *Channel:* ${downloadData.channel}\n📊 *Size:* ${finalSize}\n\n📥 Downloaded via ${config.BOT_NAME}`
                 }, { quoted: mek });
             } else {
                 await conn.sendMessage(from, {
@@ -207,7 +224,8 @@ cmd({
         const youtubeUrl = q.trim();
         await reply(`⏳ *Fetching YouTube video info...*\n\n🔄 Please wait...`);
 
-        const apiUrl = `https://sri-api.vercel.app/download/youtubedl?url=${encodeURIComponent(youtubeUrl)}`;
+        // Use the new API endpoint
+        const apiUrl = `https://sri-api.vercel.app/download/youtubedl2?url=${encodeURIComponent(youtubeUrl)}`;
         
         console.log(`[YOUTUBE] Fetching: ${apiUrl}`);
         
@@ -219,7 +237,7 @@ cmd({
             return reply(`❌ *API Error!*\n\nFailed to fetch video information.`);
         }
 
-        // Parse response
+        // Parse response - handle nested structure
         let resultData;
         
         if (response && response.status === true && response.result) {
@@ -246,36 +264,37 @@ cmd({
 
         console.log(`[YOUTUBE] Videos: ${videoFormats.length}, Audios: ${audioFormats.length}`);
 
-        // Quality priority (prefer smaller sizes)
-        const videoQualityPriority = ['144p', '240p', '360p', '480p', '720p', 'HD', 'FHD', '1080p'];
+        // Find 360p video specifically
+        let selectedVideo = videoFormats.find(v => 
+            v.mediaQuality === '360p' || v.mediaRes?.includes('360')
+        );
         
-        let selectedVideo = null;
-        let selectedVideoQuality = '';
+        let selectedVideoQuality = '360p';
         
-        for (const quality of videoQualityPriority) {
-            const found = videoFormats.find(v => 
-                v.mediaQuality?.toLowerCase() === quality.toLowerCase()
-            );
-            if (found) {
-                selectedVideo = found;
-                selectedVideoQuality = quality;
-                console.log(`[YOUTUBE] Selected video: ${quality} - ${found.mediaFileSize}`);
-                break;
-            }
-        }
-        
-        // Fallback to smallest video
-        if (!selectedVideo && videoFormats.length > 0) {
-            const sorted = [...videoFormats].sort((a, b) => {
+        // If no 360p, find next best quality under 100MB
+        if (!selectedVideo) {
+            // Sort by file size and pick smallest
+            const sortedVideos = [...videoFormats].sort((a, b) => {
                 const sizeA = parseFloat(a.mediaFileSize?.replace(/[^0-9.]/g, '') || 999);
                 const sizeB = parseFloat(b.mediaFileSize?.replace(/[^0-9.]/g, '') || 999);
                 return sizeA - sizeB;
             });
-            selectedVideo = sorted[0];
-            selectedVideoQuality = selectedVideo.mediaQuality || 'Unknown';
+            
+            // Find first video under 100MB
+            selectedVideo = sortedVideos.find(v => {
+                const size = parseFloat(v.mediaFileSize?.replace(/[^0-9.]/g, '') || 0);
+                return size <= 100;
+            });
+            
+            // If none under 100MB, take smallest anyway (will show warning)
+            if (!selectedVideo && sortedVideos.length > 0) {
+                selectedVideo = sortedVideos[0];
+            }
+            
+            selectedVideoQuality = selectedVideo?.mediaQuality || 'Unknown';
         }
 
-        // Audio selection
+        // Audio selection - prefer 48k (smallest)
         let selectedAudio = audioFormats.find(a => 
             a.mediaQuality?.toLowerCase() === '48k'
         );
@@ -297,6 +316,10 @@ cmd({
             return reply(`❌ *No downloadable formats found!*`);
         }
 
+        // Check video size warning
+        const videoSizeMB = parseFloat(selectedVideo?.mediaFileSize?.replace(/[^0-9.]/g, '') || 0);
+        const sizeWarning = videoSizeMB > 100 ? `\n\n⚠️ *Warning:* Video is ${selectedVideo.mediaFileSize} (100MB+ limit). Download may fail!` : '';
+
         // Build info
         const title = api.title || 'Unknown Title';
         const channelName = api.userInfo?.name || 'Unknown Channel';
@@ -310,9 +333,10 @@ cmd({
             `👤 *Channel:* ${channelName}\n` +
             `⏱️ *Duration:* ${duration}\n` +
             `👁️ *Views:* ${views}\n\n` +
-            `📝 *Description:*\n${api.description ? api.description.substring(0, 150) + '...' : 'No description'}`;
+            `📝 *Description:*\n${api.description ? api.description.substring(0, 150) + '...' : 'No description'}` +
+            sizeWarning;
 
-        // Store data with file sizes
+        // Store data
         const downloadData = {
             videoUrl: selectedVideo?.mediaUrl || null,
             videoQuality: selectedVideoQuality,
@@ -326,16 +350,14 @@ cmd({
             thumbnail: thumbnail
         };
 
-        console.log(`[YOUTUBE] Ready:`, {
-            video: selectedVideoQuality,
-            audio: selectedAudioQuality
-        });
+        console.log(`[YOUTUBE] Ready: Video=${selectedVideoQuality}(${selectedVideo?.mediaFileSize}), Audio=${selectedAudioQuality}`);
 
         if (messageType === 'text') {
             let optionsText = `\n\n📥 *Reply with your choice:*\n`;
             
             if (selectedVideo) {
-                optionsText += `\n🎬 *Video (${selectedVideoQuality} | ${selectedVideo.mediaFileSize}):*\n`;
+                const sizeText = videoSizeMB > 100 ? ' ⚠️ >100MB' : '';
+                optionsText += `\n🎬 *Video (${selectedVideoQuality} | ${selectedVideo.mediaFileSize}${sizeText}):*\n`;
                 optionsText += `🎬 *1.1* - Video ${selectedVideoQuality}\n`;
                 optionsText += `📄 *1.2* - Video ${selectedVideoQuality} (Doc)\n`;
             }
@@ -398,7 +420,8 @@ cmd({
                 const vidNormal = `ytvid_${baseId}`;
                 const vidDoc = `ytviddoc_${baseId}`;
                 
-                btn.makeRow("🎬", `Video ${selectedVideoQuality}`, `${selectedVideo.mediaFileSize}`, vidNormal);
+                const sizeLabel = videoSizeMB > 100 ? ' ⚠️ Large' : '';
+                btn.makeRow("🎬", `Video ${selectedVideoQuality}`, `${selectedVideo.mediaFileSize}${sizeLabel}`, vidNormal);
                 btn.makeRow("📄", `Video ${selectedVideoQuality} (Doc)`, "Document format", vidDoc);
                 
                 global.youtubeDownloads.set(vidNormal, {
