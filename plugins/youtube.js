@@ -92,14 +92,16 @@ async function handleYouTubeDownload(conn, mek, from, reply, downloadData) {
                 await conn.sendMessage(from, {
                     document: { url: fileUrl },
                     mimetype: 'audio/mpeg',
-                    fileName: `YouTube_${downloadData.videoId}_Audio_${Date.now()}.mp3`,
-                    caption: `🎵 *YouTube Audio (Document)*\n\n📌 *Title:* ${downloadData.title}\n👤 *Channel:* ${downloadData.channel}\n📊 *Size:* ${finalSize}\n\n📥 Downloaded via ${config.BOT_NAME}`
+                    fileName: `YouTube_${downloadData.videoId}_MP3_${Date.now()}.mp3`,
+                    caption: `🎵 *YouTube MP3 Audio (Document)*\n\n📌 *Title:* ${downloadData.title}\n👤 *Channel:* ${downloadData.channel}\n📊 *Size:* ${finalSize}\n📊 *Format:* MP3\n\n📥 Downloaded via ${config.BOT_NAME}`
                 }, { quoted: mek });
             } else {
+                // Send as audio message with MP3 mimetype
                 await conn.sendMessage(from, {
                     audio: { url: fileUrl },
                     mimetype: 'audio/mpeg',
-                    ptt: false
+                    ptt: false,
+                    fileName: `YouTube_${downloadData.videoId}_MP3_${Date.now()}.mp3`
                 }, { quoted: mek });
             }
         }
@@ -294,22 +296,35 @@ cmd({
             selectedVideoQuality = selectedVideo?.mediaQuality || 'Unknown';
         }
 
-        // Audio selection - prefer 48k (smallest)
+        // Audio selection - prefer MP3 format (Media #009)
+        // Look for MP3 extension specifically
         let selectedAudio = audioFormats.find(a => 
-            a.mediaQuality?.toLowerCase() === '48k'
+            a.mediaExtension?.toLowerCase() === 'mp3' || 
+            a.name?.includes('MP3')
         );
-        let selectedAudioQuality = '48k';
+        let selectedAudioQuality = 'MP3';
         
+        // If no MP3, fallback to 128k M4A
         if (!selectedAudio) {
             selectedAudio = audioFormats.find(a => 
-                a.mediaQuality?.toLowerCase() === '128k'
+                a.mediaQuality?.toLowerCase() === '128k' && 
+                a.mediaExtension?.toLowerCase() === 'm4a'
             );
             selectedAudioQuality = '128k';
         }
         
+        // If still no audio, fallback to 48k
+        if (!selectedAudio) {
+            selectedAudio = audioFormats.find(a => 
+                a.mediaQuality?.toLowerCase() === '48k'
+            );
+            selectedAudioQuality = '48k';
+        }
+        
+        // Last resort - first audio
         if (!selectedAudio && audioFormats.length > 0) {
             selectedAudio = audioFormats[0];
-            selectedAudioQuality = selectedAudio.mediaQuality || 'Unknown';
+            selectedAudioQuality = selectedAudio.mediaExtension === 'MP3' ? 'MP3' : (selectedAudio.mediaQuality || 'Unknown');
         }
 
         if (!selectedVideo && !selectedAudio) {
@@ -344,13 +359,14 @@ cmd({
             audioUrl: selectedAudio?.mediaUrl || null,
             audioQuality: selectedAudioQuality,
             audioFileSize: selectedAudio?.mediaFileSize || 'Unknown',
+            audioExtension: selectedAudio?.mediaExtension || 'mp3',
             videoId: videoId,
             title: title,
             channel: channelName,
             thumbnail: thumbnail
         };
 
-        console.log(`[YOUTUBE] Ready: Video=${selectedVideoQuality}(${selectedVideo?.mediaFileSize}), Audio=${selectedAudioQuality}`);
+        console.log(`[YOUTUBE] Ready: Video=${selectedVideoQuality}(${selectedVideo?.mediaFileSize}), Audio=${selectedAudioQuality}(${selectedAudio?.mediaExtension})`);
 
         if (messageType === 'text') {
             let optionsText = `\n\n📥 *Reply with your choice:*\n`;
@@ -363,9 +379,10 @@ cmd({
             }
             
             if (selectedAudio) {
-                optionsText += `\n🎵 *Audio (${selectedAudioQuality} | ${selectedAudio.mediaFileSize}):*\n`;
-                optionsText += `🎵 *2.1* - Audio ${selectedAudioQuality}\n`;
-                optionsText += `📄 *2.2* - Audio ${selectedAudioQuality} (Doc)\n`;
+                const formatLabel = selectedAudioQuality === 'MP3' ? ' 🎵 MP3' : ` (${selectedAudioQuality})`;
+                optionsText += `\n🎵 *Audio${formatLabel} | ${selectedAudio.mediaFileSize}):*\n`;
+                optionsText += `🎵 *2.1* - Audio MP3\n`;
+                optionsText += `📄 *2.2* - Audio MP3 (Doc)\n`;
             }
             
             optionsText += `\n⏳ *Active for 3 minutes*\n`;
@@ -451,8 +468,11 @@ cmd({
                 const audNormal = `ytaud_${baseId}`;
                 const audDoc = `ytauddoc_${baseId}`;
                 
-                btn.makeRow("🎵", `Audio ${selectedAudioQuality}`, `${selectedAudio.mediaFileSize}`, audNormal);
-                btn.makeRow("📄", `Audio ${selectedAudioQuality} (Doc)`, "Document format", audDoc);
+                const isMP3 = selectedAudioQuality === 'MP3';
+                const audioLabel = isMP3 ? '🎵 MP3 Audio' : `🎵 Audio ${selectedAudioQuality}`;
+                
+                btn.makeRow("🎵", isMP3 ? "MP3 Audio" : `Audio ${selectedAudioQuality}`, `${selectedAudio.mediaFileSize}`, audNormal);
+                btn.makeRow("📄", isMP3 ? "MP3 Audio (Doc)" : `Audio ${selectedAudioQuality} (Doc)`, "Document format", audDoc);
                 
                 global.youtubeDownloads.set(audNormal, {
                     type: 'audio',
