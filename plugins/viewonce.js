@@ -1,24 +1,32 @@
 const { cmd } = require("../command");
 const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 
+// Handle sticker reply to viewonce messages
 cmd({
-  pattern: "vv",
-  alias: ["viewonce", "vo"],
-  react: "👁️",
-  desc: "Retrieve View Once message",
-  category: "owner",
+  pattern: "viewonce_sticker_handler",
+  on: "sticker",
+  dontAddCommandList: true,
   filename: __filename
-}, async (client, message, match, { from, senderNumber }) => {
+}, async (client, message, match, { from, isOwner }) => {
   try {
+    // Only owner can use this
+    if (!isOwner) return;
+
+    // Check if this is a reply to a message
     const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-    if (!quoted) {
-      return client.sendMessage(from, { text: "⚠️ Reply to a *View Once* message!" }, { quoted: message });
-    }
+    if (!quoted) return;
+    
+    // Check if quoted message is a viewonce message
+    const isViewOnce = quoted.imageMessage?.viewOnce || 
+                       quoted.videoMessage?.viewOnce || 
+                       quoted.audioMessage?.viewOnce;
+    
+    if (!isViewOnce) return;
 
     // Get bot number
     const botNumber = client.user.id.split(':')[0] + '@s.whatsapp.net';
 
-    // Detect type (image / video / audio)
+    // Download and send the viewonce content based on type
     if (quoted.imageMessage) {
       const buffer = await downloadMediaMessage(
         { message: { imageMessage: quoted.imageMessage } },
@@ -26,11 +34,12 @@ cmd({
         {},
         { reuploadRequest: client.updateMediaMessage }
       );
-      // Send to bot number
       await client.sendMessage(botNumber, {
         image: buffer,
-        caption: quoted.imageMessage.caption || "👁️ ViewOnce Revealed"
-      }, { quoted: message });
+        caption: "👁️ ViewOnce Revealed"
+      });
+      // React to confirm
+      await client.sendMessage(from, { react: { text: "✅", key: message.key } });
     } else if (quoted.videoMessage) {
       const buffer = await downloadMediaMessage(
         { message: { videoMessage: quoted.videoMessage } },
@@ -38,11 +47,12 @@ cmd({
         {},
         { reuploadRequest: client.updateMediaMessage }
       );
-      // Send to bot number
       await client.sendMessage(botNumber, {
         video: buffer,
-        caption: quoted.videoMessage.caption || "👁️ ViewOnce Revealed"
-      }, { quoted: message });
+        caption: "👁️ ViewOnce Revealed"
+      });
+      // React to confirm
+      await client.sendMessage(from, { react: { text: "✅", key: message.key } });
     } else if (quoted.audioMessage) {
       const buffer = await downloadMediaMessage(
         { message: { audioMessage: quoted.audioMessage } },
@@ -50,18 +60,15 @@ cmd({
         {},
         { reuploadRequest: client.updateMediaMessage }
       );
-      // Send to bot number
       await client.sendMessage(botNumber, {
         audio: buffer,
         mimetype: "audio/mp4",
         ptt: quoted.audioMessage.ptt || false
-      }, { quoted: message });
-    } else {
-      await client.sendMessage(from, { text: "❌ Only image/video/audio view once supported!" }, { quoted: message });
+      });
+      // React to confirm
+      await client.sendMessage(from, { react: { text: "✅", key: message.key } });
     }
-
   } catch (e) {
-    console.error("vv plugin error:", e);
-    await client.sendMessage(from, { text: "❌ Error: " + e.message }, { quoted: message });
+    console.error("viewonce sticker handler error:", e);
   }
 });
