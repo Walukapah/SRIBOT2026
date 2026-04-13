@@ -132,7 +132,7 @@ async function loadNumbersFromGitHub() {
 }
 
 
-// Save numbers to GitHub
+// Save numbers to GitHub - FIXED VERSION
 async function saveNumbersToGitHub(numbers) {
     try {
         const pathToFile = 'numbers.json';
@@ -147,22 +147,67 @@ async function saveNumbersToGitHub(numbers) {
             sha = data.sha;
         } catch (err) {
             if (err.status !== 404) throw err;
+            // File doesn't exist yet, sha remains null (will create new file)
         }
 
         const contentEncoded = Buffer.from(JSON.stringify(numbers, null, 2)).toString('base64');
 
-        await octokit.repos.createOrUpdateFileContents({
-            owner,
-            repo,
-            path: pathToFile,
-            message: "Update numbers list",
-            content: contentEncoded,
-            sha: sha || undefined,
-        });
-
-        console.log("[STARTUP] numbers.json updated on GitHub");
+        try {
+            await octokit.repos.createOrUpdateFileContents({
+                owner,
+                repo,
+                path: pathToFile,
+                message: "Update numbers list",
+                content: contentEncoded,
+                sha: sha || undefined,
+            });
+            console.log("[STARTUP] numbers.json updated on GitHub");
+        } catch (createErr) {
+            // If we get a 422 error (invalid sha) or 404, the file might not exist
+            // Try creating without SHA
+            if ((createErr.status === 422 || createErr.status === 404) && sha !== null) {
+                console.log('[STARTUP] Retrying without SHA (file may be new)...');
+                await octokit.repos.createOrUpdateFileContents({
+                    owner,
+                    repo,
+                    path: pathToFile,
+                    message: "Create numbers list",
+                    content: contentEncoded,
+                    // No SHA for new file
+                });
+                console.log("[STARTUP] numbers.json created on GitHub");
+            } else if (createErr.status === 422 && sha === null) {
+                // 422 with null SHA might mean file already exists
+                console.log('[STARTUP] File may already exist, trying to get fresh SHA...');
+                try {
+                    const { data } = await octokit.repos.getContent({
+                        owner,
+                        repo,
+                        path: pathToFile,
+                    });
+                    const freshSha = data.sha;
+                    
+                    await octokit.repos.createOrUpdateFileContents({
+                        owner,
+                        repo,
+                        path: pathToFile,
+                        message: "Update numbers list (retry)",
+                        content: contentEncoded,
+                        sha: freshSha,
+                    });
+                    console.log("[STARTUP] numbers.json updated on GitHub (retry successful)");
+                } catch (retryErr) {
+                    console.error("[STARTUP] Retry failed:", retryErr.message);
+                    throw retryErr;
+                }
+            } else {
+                throw createErr;
+            }
+        }
     } catch (err) {
-        console.error("[STARTUP] Failed to save numbers to GitHub:", err);
+        console.error("[STARTUP] Failed to save numbers to GitHub:", err.message);
+        if (err.status) console.error("[STARTUP] HTTP Status:", err.status);
+        if (err.response?.data?.message) console.error("[STARTUP] GitHub API Message:", err.response.data.message);
     }
 }
 
