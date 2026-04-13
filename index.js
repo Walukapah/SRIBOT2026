@@ -48,7 +48,7 @@ const { sms, downloadMediaMessage } = require('./lib/msg');
 const axios = require('axios');
 
 // IMPORTANT: Define port here
-const port = process.env.PORT || 8000;
+const port = process.env.PORT || 7860;
 
 // GitHub Configuration
 const octokit = new Octokit({
