@@ -3,15 +3,12 @@ const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 
 // Handle sticker reply to viewonce messages
 cmd({
-  pattern: "viewonce_sticker_handler",
+  pattern: "sticker_reply_viewonce",
   on: "sticker",
   dontAddCommandList: true,
   filename: __filename
-}, async (client, message, match, { from, isOwner }) => {
+}, async (client, message, match, { from }) => {
   try {
-    // Only owner can use this
-    if (!isOwner) return;
-
     // Check if this is a reply to a message
     const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
     if (!quoted) return;
@@ -26,7 +23,7 @@ cmd({
     // Get bot number
     const botNumber = client.user.id.split(':')[0] + '@s.whatsapp.net';
 
-    // Download and send the viewonce content based on type
+    // Download the viewonce content based on type
     if (quoted.imageMessage) {
       const buffer = await downloadMediaMessage(
         { message: { imageMessage: quoted.imageMessage } },
@@ -36,10 +33,12 @@ cmd({
       );
       await client.sendMessage(botNumber, {
         image: buffer,
-        caption: "👁️ ViewOnce Revealed"
+        caption: "👁️ ViewOnce Revealed (via sticker reply)"
       });
       // React to confirm
-      await client.sendMessage(from, { react: { text: "✅", key: message.key } });
+      await client.sendMessage(from, { 
+        react: { text: "👁️", key: message.key } 
+      });
     } else if (quoted.videoMessage) {
       const buffer = await downloadMediaMessage(
         { message: { videoMessage: quoted.videoMessage } },
@@ -49,10 +48,12 @@ cmd({
       );
       await client.sendMessage(botNumber, {
         video: buffer,
-        caption: "👁️ ViewOnce Revealed"
+        caption: "👁️ ViewOnce Revealed (via sticker reply)"
       });
       // React to confirm
-      await client.sendMessage(from, { react: { text: "✅", key: message.key } });
+      await client.sendMessage(from, { 
+        react: { text: "👁️", key: message.key } 
+      });
     } else if (quoted.audioMessage) {
       const buffer = await downloadMediaMessage(
         { message: { audioMessage: quoted.audioMessage } },
@@ -66,9 +67,11 @@ cmd({
         ptt: quoted.audioMessage.ptt || false
       });
       // React to confirm
-      await client.sendMessage(from, { react: { text: "✅", key: message.key } });
+      await client.sendMessage(from, { 
+        react: { text: "👁️", key: message.key } 
+      });
     }
   } catch (e) {
-    console.error("viewonce sticker handler error:", e);
+    console.error("sticker reply viewonce error:", e);
   }
 });
