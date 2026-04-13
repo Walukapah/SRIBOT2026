@@ -100,44 +100,20 @@ async function loadNumbersFromGitHub() {
         return JSON.parse(content);
     } catch (error) {
         console.warn('[STARTUP] No numbers.json found on GitHub, creating new one');
-        
-        // ============================================
-        // FIX: Actually create the file on GitHub
-        // ============================================
-        try {
-            const emptyNumbers = [];
-            const contentEncoded = Buffer.from(JSON.stringify(emptyNumbers, null, 2)).toString('base64');
-            
-            await octokit.repos.createOrUpdateFileContents({
-                owner,
-                repo,
-                path: 'numbers.json',
-                message: "Create numbers.json - initial empty file",
-                content: contentEncoded,
-                // No SHA needed for new file
-            });
-            
-            console.log('[STARTUP] Successfully created numbers.json on GitHub');
-            
-            // Also save locally
-            fs.writeFileSync('./numbers.json', JSON.stringify(emptyNumbers, null, 2));
-            
-            return emptyNumbers;
-        } catch (createError) {
-            console.error('[STARTUP] Failed to create numbers.json on GitHub:', createError.message);
-            // Return empty array as fallback
-            return [];
-        }
+        return [];
     }
 }
 
-
-// Save numbers to GitHub - FIXED VERSION
+// Save numbers to GitHub - FIXED VERSION with fresh SHA fetch
 async function saveNumbersToGitHub(numbers) {
+    const pathToFile = 'numbers.json';
+    const contentEncoded = Buffer.from(JSON.stringify(numbers, null, 2)).toString('base64');
+    
     try {
-        const pathToFile = 'numbers.json';
+        // ALWAYS fetch fresh SHA before updating (to avoid 409 conflicts)
         let sha = null;
-
+        let fileExists = false;
+        
         try {
             const { data } = await octokit.repos.getContent({
                 owner,
@@ -145,104 +121,149 @@ async function saveNumbersToGitHub(numbers) {
                 path: pathToFile,
             });
             sha = data.sha;
+            fileExists = true;
+            console.log(`[GITHUB] Fetched fresh SHA for numbers.json: ${sha}`);
         } catch (err) {
-            if (err.status !== 404) throw err;
-            // File doesn't exist yet, sha remains null (will create new file)
+            if (err.status === 404) {
+                console.log('[GITHUB] numbers.json does not exist, will create new file');
+                fileExists = false;
+                sha = null;
+            } else {
+                throw err;
+            }
         }
 
-        const contentEncoded = Buffer.from(JSON.stringify(numbers, null, 2)).toString('base64');
-
-        try {
+        // Create or update file
+        if (fileExists && sha) {
+            // Update existing file with fresh SHA
             await octokit.repos.createOrUpdateFileContents({
                 owner,
                 repo,
                 path: pathToFile,
                 message: "Update numbers list",
                 content: contentEncoded,
-                sha: sha || undefined,
+                sha: sha, // Fresh SHA
             });
             console.log("[STARTUP] numbers.json updated on GitHub");
-        } catch (createErr) {
-            // If we get a 422 error (invalid sha) or 404, the file might not exist
-            // Try creating without SHA
-            if ((createErr.status === 422 || createErr.status === 404) && sha !== null) {
-                console.log('[STARTUP] Retrying without SHA (file may be new)...');
+        } else {
+            // Create new file (no SHA needed)
+            await octokit.repos.createOrUpdateFileContents({
+                owner,
+                repo,
+                path: pathToFile,
+                message: "Create numbers list",
+                content: contentEncoded,
+                // No SHA parameter for new files
+            });
+            console.log("[STARTUP] numbers.json created on GitHub");
+        }
+        
+        return true;
+    } catch (err) {
+        // If 409 error (SHA mismatch), retry once with fresh SHA
+        if (err.status === 409) {
+            console.log('[GITHUB] Got 409 conflict, retrying with fresh SHA...');
+            try {
+                // Fetch fresh SHA again
+                const { data } = await octokit.repos.getContent({
+                    owner,
+                    repo,
+                    path: pathToFile,
+                });
+                const freshSha = data.sha;
+                
+                console.log(`[GITHUB] Retrying with fresh SHA: ${freshSha}`);
+                
                 await octokit.repos.createOrUpdateFileContents({
                     owner,
                     repo,
                     path: pathToFile,
-                    message: "Create numbers list",
+                    message: "Update numbers list (retry after conflict)",
                     content: contentEncoded,
-                    // No SHA for new file
+                    sha: freshSha,
                 });
-                console.log("[STARTUP] numbers.json created on GitHub");
-            } else if (createErr.status === 422 && sha === null) {
-                // 422 with null SHA might mean file already exists
-                console.log('[STARTUP] File may already exist, trying to get fresh SHA...');
-                try {
-                    const { data } = await octokit.repos.getContent({
-                        owner,
-                        repo,
-                        path: pathToFile,
-                    });
-                    const freshSha = data.sha;
-                    
-                    await octokit.repos.createOrUpdateFileContents({
-                        owner,
-                        repo,
-                        path: pathToFile,
-                        message: "Update numbers list (retry)",
-                        content: contentEncoded,
-                        sha: freshSha,
-                    });
-                    console.log("[STARTUP] numbers.json updated on GitHub (retry successful)");
-                } catch (retryErr) {
-                    console.error("[STARTUP] Retry failed:", retryErr.message);
-                    throw retryErr;
-                }
-            } else {
-                throw createErr;
+                console.log("[STARTUP] numbers.json updated on GitHub (after retry)");
+                return true;
+            } catch (retryErr) {
+                console.error("[STARTUP] Retry failed:", retryErr.message);
+                return false;
             }
         }
-    } catch (err) {
+        
         console.error("[STARTUP] Failed to save numbers to GitHub:", err.message);
         if (err.status) console.error("[STARTUP] HTTP Status:", err.status);
         if (err.response?.data?.message) console.error("[STARTUP] GitHub API Message:", err.response.data.message);
+        return false;
     }
 }
 
-// Add number to numbers.json and GitHub
+// Add number to numbers.json and GitHub - FIXED with immediate save
 async function addNumberToStorage(number) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
     
     try {
+        // Load current numbers from GitHub
         let storedNumbers = await loadNumbersFromGitHub();
         
+        // If empty and local file exists, use local
         if (storedNumbers.length === 0 && fs.existsSync('./numbers.json')) {
-            storedNumbers = JSON.parse(fs.readFileSync('./numbers.json', 'utf8'));
+            try {
+                const localData = JSON.parse(fs.readFileSync('./numbers.json', 'utf8'));
+                if (Array.isArray(localData) && localData.length > 0) {
+                    storedNumbers = localData;
+                    console.log(`[STARTUP] Loaded ${localData.length} numbers from local file`);
+                }
+            } catch (e) {
+                console.error('[STARTUP] Error reading local numbers.json:', e);
+            }
         }
         
+        // Check if number already exists
         if (!storedNumbers.includes(sanitizedNumber)) {
             storedNumbers.push(sanitizedNumber);
-            await saveNumbersToGitHub(storedNumbers);
-            fs.writeFileSync('./numbers.json', JSON.stringify(storedNumbers, null, 2));
-            console.log(`[STARTUP] Added ${sanitizedNumber} to numbers list`);
+            
+            // Save to GitHub immediately (with fresh SHA)
+            const githubSuccess = await saveNumbersToGitHub(storedNumbers);
+            
+            // Save locally as backup
+            try {
+                fs.writeFileSync('./numbers.json', JSON.stringify(storedNumbers, null, 2));
+            } catch (e) {
+                console.error('[STARTUP] Failed to save local numbers.json:', e);
+            }
+            
+            if (githubSuccess) {
+                console.log(`[STARTUP] ✅ Added ${sanitizedNumber} to numbers list on GitHub`);
+            } else {
+                console.log(`[STARTUP] ⚠️ Added ${sanitizedNumber} to local numbers list only (GitHub failed)`);
+            }
+        } else {
+            console.log(`[STARTUP] Number ${sanitizedNumber} already exists in list`);
         }
         
         return storedNumbers;
     } catch (error) {
         console.error('[STARTUP] Failed to add number to storage:', error);
         
+        // Fallback to local only
         const numbersPath = './numbers.json';
         let storedNumbers = [];
         
         if (fs.existsSync(numbersPath)) {
-            storedNumbers = JSON.parse(fs.readFileSync(numbersPath, 'utf8'));
+            try {
+                storedNumbers = JSON.parse(fs.readFileSync(numbersPath, 'utf8'));
+            } catch (e) {
+                console.error('[STARTUP] Error reading local file:', e);
+            }
         }
         
         if (!storedNumbers.includes(sanitizedNumber)) {
             storedNumbers.push(sanitizedNumber);
-            fs.writeFileSync(numbersPath, JSON.stringify(storedNumbers, null, 2));
+            try {
+                fs.writeFileSync(numbersPath, JSON.stringify(storedNumbers, null, 2));
+            } catch (e) {
+                console.error('[STARTUP] Failed to save local file:', e);
+            }
         }
         
         return storedNumbers;
@@ -260,11 +281,17 @@ async function removeNumberFromStorage(number) {
             storedNumbers = JSON.parse(fs.readFileSync('./numbers.json', 'utf8'));
         }
         
+        const originalLength = storedNumbers.length;
         storedNumbers = storedNumbers.filter(num => num !== sanitizedNumber);
-        await saveNumbersToGitHub(storedNumbers);
-        fs.writeFileSync('./numbers.json', JSON.stringify(storedNumbers, null, 2));
         
-        console.log(`[STARTUP] Removed ${sanitizedNumber} from numbers list`);
+        if (storedNumbers.length < originalLength) {
+            // Save to GitHub with fresh SHA
+            await saveNumbersToGitHub(storedNumbers);
+            // Save locally
+            fs.writeFileSync('./numbers.json', JSON.stringify(storedNumbers, null, 2));
+            console.log(`[STARTUP] Removed ${sanitizedNumber} from numbers list`);
+        }
+        
         return storedNumbers;
     } catch (error) {
         console.error('[STARTUP] Failed to remove number from storage:', error);
@@ -313,7 +340,10 @@ async function cleanDuplicateFiles(number) {
             }
         }
     } catch (error) {
-        console.error(`[STARTUP] Failed to clean duplicate files for ${number}:`, error);
+        // 404 is expected if sessions folder doesn't exist yet
+        if (error.status !== 404) {
+            console.error(`[STARTUP] Failed to clean duplicate files for ${number}:`, error.message);
+        }
     }
 }
 
@@ -374,34 +404,65 @@ async function restoreSession(number) {
     }
 }
 
+// Save session to GitHub - FIXED with fresh SHA fetch
 async function saveSessionToGitHub(number, sessionData) {
     try {
         const sanitizedNumber = number.replace(/[^0-9]/g, '');
         const filename = `creds_${sanitizedNumber}.json`;
-        let sha;
-
+        const pathToFile = `sessions/${filename}`;
+        
+        // Always fetch fresh SHA
+        let sha = null;
         try {
             const { data } = await octokit.repos.getContent({
                 owner,
                 repo,
-                path: `sessions/${filename}`
+                path: pathToFile
             });
             sha = data.sha;
         } catch (error) {
+            if (error.status !== 404) throw error;
             // File doesn't exist yet
         }
 
-        await octokit.repos.createOrUpdateFileContents({
-            owner,
-            repo,
-            path: `sessions/${filename}`,
-            message: `Update session for ${sanitizedNumber}`,
-            content: Buffer.from(JSON.stringify(sessionData, null, 2)).toString('base64'),
-            sha
-        });
-        console.log(`[STARTUP] Session saved to GitHub for ${sanitizedNumber}`);
+        const content = Buffer.from(JSON.stringify(sessionData, null, 2)).toString('base64');
+
+        try {
+            await octokit.repos.createOrUpdateFileContents({
+                owner,
+                repo,
+                path: pathToFile,
+                message: `Update session for ${sanitizedNumber}`,
+                content: content,
+                sha: sha || undefined,
+            });
+            console.log(`[STARTUP] Session saved to GitHub for ${sanitizedNumber}`);
+        } catch (err) {
+            // Retry with fresh SHA if 409 error
+            if (err.status === 409) {
+                console.log(`[GITHUB] Session save got 409, retrying with fresh SHA...`);
+                const { data } = await octokit.repos.getContent({
+                    owner,
+                    repo,
+                    path: pathToFile
+                });
+                const freshSha = data.sha;
+                
+                await octokit.repos.createOrUpdateFileContents({
+                    owner,
+                    repo,
+                    path: pathToFile,
+                    message: `Update session for ${sanitizedNumber} (retry)`,
+                    content: content,
+                    sha: freshSha,
+                });
+                console.log(`[STARTUP] Session saved to GitHub for ${sanitizedNumber} (retry successful)`);
+            } else {
+                throw err;
+            }
+        }
     } catch (error) {
-        console.error('[STARTUP] Failed to save session to GitHub:', error);
+        console.error('[STARTUP] Failed to save session to GitHub:', error.message);
     }
 }
 
