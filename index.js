@@ -100,9 +100,37 @@ async function loadNumbersFromGitHub() {
         return JSON.parse(content);
     } catch (error) {
         console.warn('[STARTUP] No numbers.json found on GitHub, creating new one');
-        return [];
+        
+        // ============================================
+        // FIX: Actually create the file on GitHub
+        // ============================================
+        try {
+            const emptyNumbers = [];
+            const contentEncoded = Buffer.from(JSON.stringify(emptyNumbers, null, 2)).toString('base64');
+            
+            await octokit.repos.createOrUpdateFileContents({
+                owner,
+                repo,
+                path: 'numbers.json',
+                message: "Create numbers.json - initial empty file",
+                content: contentEncoded,
+                // No SHA needed for new file
+            });
+            
+            console.log('[STARTUP] Successfully created numbers.json on GitHub');
+            
+            // Also save locally
+            fs.writeFileSync('./numbers.json', JSON.stringify(emptyNumbers, null, 2));
+            
+            return emptyNumbers;
+        } catch (createError) {
+            console.error('[STARTUP] Failed to create numbers.json on GitHub:', createError.message);
+            // Return empty array as fallback
+            return [];
+        }
     }
 }
+
 
 // Save numbers to GitHub
 async function saveNumbersToGitHub(numbers) {
