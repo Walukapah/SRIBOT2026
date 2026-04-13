@@ -55,7 +55,7 @@ const octokit = new Octokit({
     auth: process.env.GITHUB_TOKEN
 });
 const owner = process.env.GITHUB_REPO_OWNER || 'Walukapah';
-const repo = process.env.GITHUB_REPO_NAME || 'SRI-DATABASE';
+const repo = process.env.GITHUB_REPO_NAME || 'SRI-DATABASE-HF';
 
 // Multi-number support variables
 const activeSockets = new Map();
