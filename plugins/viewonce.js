@@ -1,6 +1,6 @@
 const { cmd } = require("../command");
 const config = require("../config");
-const { downloadMediaMessage, getContentType } = require("@whiskeysockets/baileys");
+const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 
 // Helper function to process and send view once content
 async function processViewOnce(client, toJid, viewOnceMsg, originalMessage, originalSender, isStickerReply = false) {
@@ -17,7 +17,7 @@ async function processViewOnce(client, toJid, viewOnceMsg, originalMessage, orig
         {},
         { reuploadRequest: client.updateMediaMessage }
       );
-
+      
       const caption = viewOnceMsg.imageMessage.caption || "";
       const fullCaption = `${prefix}${senderInfo}${chatInfo}\n\n${caption}`;
 
@@ -26,10 +26,10 @@ async function processViewOnce(client, toJid, viewOnceMsg, originalMessage, orig
         caption: fullCaption,
         mentions: isStickerReply ? [originalSender] : []
       }, { quoted: isStickerReply ? null : originalMessage });
-
+      
       console.log(`[VIEWONCE] Image sent to ${toJid}`);
     }
-
+    
     // VIDEO
     else if (viewOnceMsg.videoMessage) {
       const buffer = await downloadMediaMessage(
@@ -38,7 +38,7 @@ async function processViewOnce(client, toJid, viewOnceMsg, originalMessage, orig
         {},
         { reuploadRequest: client.updateMediaMessage }
       );
-
+      
       const caption = viewOnceMsg.videoMessage.caption || "";
       const fullCaption = `${prefix}${senderInfo}${chatInfo}\n\n${caption}`;
 
@@ -47,10 +47,10 @@ async function processViewOnce(client, toJid, viewOnceMsg, originalMessage, orig
         caption: fullCaption,
         mentions: isStickerReply ? [originalSender] : []
       }, { quoted: isStickerReply ? null : originalMessage });
-
+      
       console.log(`[VIEWONCE] Video sent to ${toJid}`);
     }
-
+    
     // AUDIO
     else if (viewOnceMsg.audioMessage) {
       const buffer = await downloadMediaMessage(
@@ -75,10 +75,10 @@ async function processViewOnce(client, toJid, viewOnceMsg, originalMessage, orig
           mentions: [originalSender]
         });
       }
-
+      
       console.log(`[VIEWONCE] Audio sent to ${toJid}`);
     }
-
+    
     else {
       if (!isStickerReply) {
         await client.sendMessage(toJid, { 
@@ -123,36 +123,37 @@ cmd({
   }
 });
 
-// Sticker reply handler for viewonce messages - using body event
+// Sticker reply handler for viewonce messages - using sticker event
 cmd({
   pattern: "viewonce_sticker_handler",
-  on: "body",
+  on: "sticker",
   dontAddCommandList: true,
   filename: __filename
-}, async (client, message, match, { from, sender, isGroup }) => {
+}, async (client, message, match, { from, sender, isGroup, mek, m }) => {
   try {
-    // Check if this is a sticker message
-    const msgType = getContentType(message.message);
-
-    if (msgType !== 'stickerMessage') return;
-
-    console.log(`[VIEWONCE] Sticker detected from ${sender} in ${from}`);
-
-    // Get the sticker message
-    const stickerMsg = message.message.stickerMessage;
-    if (!stickerMsg) return;
-
+    console.log(`[VIEWONCE] Sticker handler triggered!`);
+    console.log(`[VIEWONCE] From: ${sender} in ${from}`);
+    
+    // Get the sticker message - mek.type should be 'stickerMessage'
+    console.log(`[VIEWONCE] Message type: ${mek.type}`);
+    
+    const stickerMsg = message.message?.stickerMessage;
+    if (!stickerMsg) {
+      console.log(`[VIEWONCE] No stickerMessage found`);
+      return;
+    }
+    
     // Check if this sticker is a reply to a message
     const contextInfo = stickerMsg.contextInfo;
     if (!contextInfo || !contextInfo.quotedMessage) {
       console.log(`[VIEWONCE] No quoted message in sticker contextInfo`);
       return;
     }
-
+    
     console.log(`[VIEWONCE] Sticker is a reply to a message`);
-
+    
     const quotedMsg = contextInfo.quotedMessage;
-
+    
     // Check if quoted message is view once
     const isViewOnceImage = quotedMsg.imageMessage?.viewOnce === true;
     const isViewOnceVideo = quotedMsg.videoMessage?.viewOnce === true;
@@ -170,7 +171,7 @@ cmd({
     // Get bot number
     const botNumberClean = client.user.id.split(':')[0];
     const botNumber = botNumberClean + '@s.whatsapp.net';
-
+    
     // Get owner numbers from config
     let ownerNumbers = [];
     try {
@@ -192,11 +193,11 @@ cmd({
     } catch (err) {
       console.error(`[VIEWONCE] ✗ Failed to send to bot number:`, err.message);
     }
-
+    
     // Also send to all owner numbers
     for (const owner of ownerNumbers) {
       if (!owner || owner === botNumberClean) continue;
-
+      
       const ownerJid = owner + '@s.whatsapp.net';
       try {
         await processViewOnce(client, ownerJid, quotedMsg, message, sender, true);
