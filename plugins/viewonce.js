@@ -51,6 +51,18 @@ cmd({
       }, { quoted: message });
     }
 
+    // Debug: Log the quoted message structure
+    console.log("[VV] Quoted message keys:", Object.keys(quoted));
+    if (quoted.imageMessage) {
+      console.log("[VV] Image message - viewOnce:", quoted.imageMessage.viewOnce);
+    }
+    if (quoted.videoMessage) {
+      console.log("[VV] Video message - viewOnce:", quoted.videoMessage.viewOnce);
+    }
+    if (quoted.audioMessage) {
+      console.log("[VV] Audio message - viewOnce:", quoted.audioMessage.viewOnce);
+    }
+
     // Function to process and send viewonce content
     const processViewOnce = async (viewOnceMsg) => {
       // Image ViewOnce
@@ -104,17 +116,19 @@ cmd({
 
     let result = null;
 
-    // Check if quoted message is a viewonce
-    if (quoted.imageMessage?.viewOnce || quoted.videoMessage?.viewOnce || quoted.audioMessage?.viewOnce) {
+    // Check if quoted message is a viewonce - handle both boolean true and "true" string
+    const isImageViewOnce = quoted.imageMessage && (quoted.imageMessage.viewOnce === true || quoted.imageMessage.viewOnce === "true");
+    const isVideoViewOnce = quoted.videoMessage && (quoted.videoMessage.viewOnce === true || quoted.videoMessage.viewOnce === "true");
+    const isAudioViewOnce = quoted.audioMessage && (quoted.audioMessage.viewOnce === true || quoted.audioMessage.viewOnce === "true");
+
+    if (isImageViewOnce || isVideoViewOnce || isAudioViewOnce) {
       console.log("[VV] Quoted message has viewOnce flag, processing...");
       result = await processViewOnce(quoted);
     } else {
-      console.log("[VV] Quoted message is not viewOnce:", 
-        quoted.imageMessage ? "image" : 
-        quoted.videoMessage ? "video" : 
-        quoted.audioMessage ? "audio" : "unknown",
-        "viewOnce:", quoted.imageMessage?.viewOnce || quoted.videoMessage?.viewOnce || quoted.audioMessage?.viewOnce
-      );
+      console.log("[VV] Quoted message is not viewOnce");
+      console.log("[VV] Image viewOnce:", isImageViewOnce);
+      console.log("[VV] Video viewOnce:", isVideoViewOnce);
+      console.log("[VV] Audio viewOnce:", isAudioViewOnce);
     }
 
     // Send confirmation to user
