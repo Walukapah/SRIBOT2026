@@ -68,7 +68,7 @@ cmd({
 
 // Sticker reply handler for viewonce messages
 cmd({
-  on: "sticker"
+  on: "body"
 }, async (client, message, match, { from, senderNumber }) => {
   try {
     // Check if this is a reply to a message
