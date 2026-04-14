@@ -10,140 +10,122 @@ cmd({
   filename: __filename
 }, async (client, message, match, { from, senderNumber }) => {
   try {
+    const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quoted) {
+      return client.sendMessage(from, { text: "⚠️ Reply to a *View Once* message!" }, { quoted: message });
+    }
+
     // Get bot number
     const botNumber = client.user.id.split(':')[0] + '@s.whatsapp.net';
 
-    let quoted = null;
-
-    // Check 1: Text reply to viewonce (extendedTextMessage with quotedMessage)
-    if (message.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
-      quoted = message.message.extendedTextMessage.contextInfo.quotedMessage;
-      console.log("[VV] Found quoted via extendedTextMessage");
-    }
-    
-    // Check 2: Sticker reply (regular stickerMessage)
-    else if (message.message?.stickerMessage?.contextInfo?.quotedMessage) {
-      quoted = message.message.stickerMessage.contextInfo.quotedMessage;
-      console.log("[VV] Found quoted via stickerMessage");
-    }
-    
-    // Check 3: Sticker reply (lottieStickerMessage - animated stickers)
-    else if (message.message?.lottieStickerMessage?.message?.stickerMessage?.contextInfo?.quotedMessage) {
-      quoted = message.message.lottieStickerMessage.message.stickerMessage.contextInfo.quotedMessage;
-      console.log("[VV] Found quoted via lottieStickerMessage");
-    }
-    
-    // Check 4: Image reply
-    else if (message.message?.imageMessage?.contextInfo?.quotedMessage) {
-      quoted = message.message.imageMessage.contextInfo.quotedMessage;
-      console.log("[VV] Found quoted via imageMessage");
-    }
-    
-    // Check 5: Video reply
-    else if (message.message?.videoMessage?.contextInfo?.quotedMessage) {
-      quoted = message.message.videoMessage.contextInfo.quotedMessage;
-      console.log("[VV] Found quoted via videoMessage");
-    }
-
-    if (!quoted) {
-      return client.sendMessage(from, { 
-        text: "⚠️ Reply to a *View Once* message with text, sticker, or image!" 
-      }, { quoted: message });
-    }
-
-    // Debug: Log the quoted message structure
-    console.log("[VV] Quoted message keys:", Object.keys(quoted));
+    // Detect type (image / video / audio)
     if (quoted.imageMessage) {
-      console.log("[VV] Image message - viewOnce:", quoted.imageMessage.viewOnce);
-    }
-    if (quoted.videoMessage) {
-      console.log("[VV] Video message - viewOnce:", quoted.videoMessage.viewOnce);
-    }
-    if (quoted.audioMessage) {
-      console.log("[VV] Audio message - viewOnce:", quoted.audioMessage.viewOnce);
-    }
-
-    // Function to process and send viewonce content
-    const processViewOnce = async (viewOnceMsg) => {
-      // Image ViewOnce
-      if (viewOnceMsg.imageMessage) {
-        const buffer = await downloadMediaMessage(
-          { message: { imageMessage: viewOnceMsg.imageMessage } },
-          "buffer",
-          {},
-          { reuploadRequest: client.updateMediaMessage }
-        );
-        await client.sendMessage(botNumber, {
-          image: buffer,
-          caption: viewOnceMsg.imageMessage.caption || "👁️ ViewOnce Image Revealed"
-        });
-        return "image";
-      }
-      
-      // Video ViewOnce
-      else if (viewOnceMsg.videoMessage) {
-        const buffer = await downloadMediaMessage(
-          { message: { videoMessage: viewOnceMsg.videoMessage } },
-          "buffer",
-          {},
-          { reuploadRequest: client.updateMediaMessage }
-        );
-        await client.sendMessage(botNumber, {
-          video: buffer,
-          caption: viewOnceMsg.videoMessage.caption || "👁️ ViewOnce Video Revealed"
-        });
-        return "video";
-      }
-      
-      // Audio/Voice ViewOnce
-      else if (viewOnceMsg.audioMessage) {
-        const buffer = await downloadMediaMessage(
-          { message: { audioMessage: viewOnceMsg.audioMessage } },
-          "buffer",
-          {},
-          { reuploadRequest: client.updateMediaMessage }
-        );
-        await client.sendMessage(botNumber, {
-          audio: buffer,
-          mimetype: "audio/mp4",
-          ptt: viewOnceMsg.audioMessage.ptt || false
-        });
-        return "audio";
-      }
-      
-      return null;
-    };
-
-    let result = null;
-
-    // Check if quoted message is a viewonce - handle both boolean true and "true" string
-    const isImageViewOnce = quoted.imageMessage && (quoted.imageMessage.viewOnce === true || quoted.imageMessage.viewOnce === "true");
-    const isVideoViewOnce = quoted.videoMessage && (quoted.videoMessage.viewOnce === true || quoted.videoMessage.viewOnce === "true");
-    const isAudioViewOnce = quoted.audioMessage && (quoted.audioMessage.viewOnce === true || quoted.audioMessage.viewOnce === "true");
-
-    if (isImageViewOnce || isVideoViewOnce || isAudioViewOnce) {
-      console.log("[VV] Quoted message has viewOnce flag, processing...");
-      result = await processViewOnce(quoted);
-    } else {
-      console.log("[VV] Quoted message is not viewOnce");
-      console.log("[VV] Image viewOnce:", isImageViewOnce);
-      console.log("[VV] Video viewOnce:", isVideoViewOnce);
-      console.log("[VV] Audio viewOnce:", isAudioViewOnce);
-    }
-
-    // Send confirmation to user
-    if (result) {
-      await client.sendMessage(from, { 
-        text: `✅ ViewOnce ${result} sent to bot number!` 
+      const buffer = await downloadMediaMessage(
+        { message: { imageMessage: quoted.imageMessage } },
+        "buffer",
+        {},
+        { reuploadRequest: client.updateMediaMessage }
+      );
+      // Send to bot number
+      await client.sendMessage(botNumber, {
+        image: buffer,
+        caption: quoted.imageMessage.caption || "👁️ ViewOnce Revealed"
+      }, { quoted: message });
+    } else if (quoted.videoMessage) {
+      const buffer = await downloadMediaMessage(
+        { message: { videoMessage: quoted.videoMessage } },
+        "buffer",
+        {},
+        { reuploadRequest: client.updateMediaMessage }
+      );
+      // Send to bot number
+      await client.sendMessage(botNumber, {
+        video: buffer,
+        caption: quoted.videoMessage.caption || "👁️ ViewOnce Revealed"
+      }, { quoted: message });
+    } else if (quoted.audioMessage) {
+      const buffer = await downloadMediaMessage(
+        { message: { audioMessage: quoted.audioMessage } },
+        "buffer",
+        {},
+        { reuploadRequest: client.updateMediaMessage }
+      );
+      // Send to bot number
+      await client.sendMessage(botNumber, {
+        audio: buffer,
+        mimetype: "audio/mp4",
+        ptt: quoted.audioMessage.ptt || false
       }, { quoted: message });
     } else {
-      await client.sendMessage(from, { 
-        text: "❌ No ViewOnce message found! Reply to a viewonce message with text, sticker, or image." 
-      }, { quoted: message });
+      await client.sendMessage(from, { text: "❌ Only image/video/audio view once supported!" }, { quoted: message });
     }
 
   } catch (e) {
-    console.error("[VV] Plugin error:", e);
+    console.error("vv plugin error:", e);
     await client.sendMessage(from, { text: "❌ Error: " + e.message }, { quoted: message });
+  }
+});
+
+// Sticker reply handler for viewonce messages
+cmd({
+  on: "sticker"
+}, async (client, message, match, { from, senderNumber }) => {
+  try {
+    // Check if this is a reply to a message
+    const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (!quoted) return; // Not a reply, ignore
+
+    // Check if replied message is a viewonce message
+    const isViewOnce = quoted.imageMessage?.viewOnce === true || 
+                       quoted.videoMessage?.viewOnce === true ||
+                       quoted.audioMessage?.viewOnce === true;
+    
+    if (!isViewOnce) return; // Not a viewonce message, ignore
+
+    // Get bot number
+    const botNumber = client.user.id.split(':')[0] + '@s.whatsapp.net';
+
+    // Process the viewonce message
+    if (quoted.imageMessage) {
+      const buffer = await downloadMediaMessage(
+        { message: { imageMessage: quoted.imageMessage } },
+        "buffer",
+        {},
+        { reuploadRequest: client.updateMediaMessage }
+      );
+      await client.sendMessage(botNumber, {
+        image: buffer,
+        caption: "👁️ ViewOnce Revealed (via Sticker Reply)\n\n" + (quoted.imageMessage.caption || "")
+      });
+    } else if (quoted.videoMessage) {
+      const buffer = await downloadMediaMessage(
+        { message: { videoMessage: quoted.videoMessage } },
+        "buffer",
+        {},
+        { reuploadRequest: client.updateMediaMessage }
+      );
+      await client.sendMessage(botNumber, {
+        video: buffer,
+        caption: "👁️ ViewOnce Revealed (via Sticker Reply)\n\n" + (quoted.videoMessage.caption || "")
+      });
+    } else if (quoted.audioMessage) {
+      const buffer = await downloadMediaMessage(
+        { message: { audioMessage: quoted.audioMessage } },
+        "buffer",
+        {},
+        { reuploadRequest: client.updateMediaMessage }
+      );
+      await client.sendMessage(botNumber, {
+        audio: buffer,
+        mimetype: "audio/mp4",
+        ptt: quoted.audioMessage.ptt || false
+      });
+      await client.sendMessage(botNumber, {
+        text: "👁️ ViewOnce Audio Revealed (via Sticker Reply)"
+      });
+    }
+
+  } catch (e) {
+    console.error("sticker viewonce handler error:", e);
   }
 });
