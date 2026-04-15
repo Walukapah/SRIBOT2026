@@ -951,16 +951,30 @@ function setupMessageHandlers(conn, number, messageStore) {
             const deletedByNumber = deletedBy.split('@')[0];
             const sentByNumber = msg.sender.split('@')[0];
             
-            // Don't show if bot deleted it (FIXED: Better comparison for group deletes)
-            // Normalize both numbers by removing non-digits for comparison
-            const normalizedDeletedBy = deletedByNumber.replace(/[^0-9]/g, '');
-            const normalizedBotNumber = botNumber.replace(/[^0-9]/g, '');
+            // ============================================
+            // FIXED: Handle LID format for bot delete detection
+            // ============================================
             
-            // Check if deleted by bot
-            const isDeletedByBot = normalizedDeletedBy === normalizedBotNumber;
+            // Method 1: Check using fromMe flag (most reliable)
+            // When bot deletes in private chat or group, fromMe should be true
+            const isDeletedByBotFromMe = mek.key.fromMe === true;
+            
+            // Method 2: Check using participantAlt (has regular number in LID chats)
+            // participantAlt contains the real number when participant is LID format
+            const participantAlt = mek.key.participantAlt || '';
+            const deletedByAltNumber = participantAlt ? participantAlt.split('@')[0].replace(/[^0-9]/g, '') : '';
+            const normalizedBotNumber = botNumber.replace(/[^0-9]/g, '');
+            const isDeletedByBotAlt = deletedByAltNumber === normalizedBotNumber && deletedByAltNumber !== '';
+            
+            // Method 3: Legacy check (for non-LID formats)
+            const normalizedDeletedBy = deletedByNumber.replace(/[^0-9]/g, '');
+            const isDeletedByBotLegacy = normalizedDeletedBy === normalizedBotNumber;
+            
+            // Combine all checks
+            const isDeletedByBot = isDeletedByBotFromMe || isDeletedByBotAlt || isDeletedByBotLegacy;
             
             if (isDeletedByBot) {
-                console.log(`[ANTI_DELETE] Skipping notification - Bot deleted message`);
+                console.log(`[ANTI_DELETE] Skipping notification - Bot deleted message (fromMe: ${isDeletedByBotFromMe}, altMatch: ${isDeletedByBotAlt}, legacy: ${isDeletedByBotLegacy})`);
                 messageStore.delete(deletedId);
                 return;
             }
