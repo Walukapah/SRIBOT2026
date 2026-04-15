@@ -857,7 +857,7 @@ function setupMessageHandlers(conn, number, messageStore) {
 
         conn.sendButtonMessage = async (jid, text, footer, buttons, imageUrl, options = {}) => {
             const message = generateButtonMessage(text, footer, buttons, imageUrl);
-            return conn.sendMessage(jid, message, { quoted: m, ...options });
+            return conn.sendMessage(jid, message, options);
         };
 
         conn.sendImageButton = async (jid, image, text, footer, buttons, options = {}) => {
@@ -917,30 +917,20 @@ function setupMessageHandlers(conn, number, messageStore) {
         // =======================================
         
         // IMPORTANT: Use currentConfig (reloaded) instead of config directly
-        // Skip saving messages sent by bot itself (check fromMe first, then sender number)
         if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && !mek.key.fromMe) {
-            // Double check: get sender and verify it's not bot
-            const msgSender = mek.key.participant || mek.key.remoteJid;
-            const msgSenderNumber = msgSender.split('@')[0];
+            // Save all message types to store
+            messageStore.set(mek.key.id, {
+                key: mek.key,
+                message: mek.message,
+                jid: mek.key.remoteJid,
+                sender: mek.key.participant || mek.key.remoteJid,
+                timestamp: Date.now()
+            });
             
-            // Skip if sender is bot (extra safety check)
-            if (msgSenderNumber.includes(botNumber)) {
-                console.log(`[ANTI_DELETE] Skipping bot's own message from ${msgSenderNumber}`);
-            } else {
-                // Save all message types to store
-                messageStore.set(mek.key.id, {
-                    key: mek.key,
-                    message: mek.message,
-                    jid: mek.key.remoteJid,
-                    sender: mek.key.participant || mek.key.remoteJid,
-                    timestamp: Date.now()
-                });
-                
-                // Limit store size to prevent memory issues (keep last 1000 messages)
-                if (messageStore.size > 1000) {
-                    const firstKey = messageStore.keys().next().value;
-                    messageStore.delete(firstKey);
-                }
+            // Limit store size to prevent memory issues (keep last 1000 messages)
+            if (messageStore.size > 1000) {
+                const firstKey = messageStore.keys().next().value;
+                messageStore.delete(firstKey);
             }
         }
 
@@ -961,16 +951,16 @@ function setupMessageHandlers(conn, number, messageStore) {
             const deletedByNumber = deletedBy.split('@')[0];
             const sentByNumber = msg.sender.split('@')[0];
             
-            // Don't show if bot deleted it
-            if (deletedByNumber.includes(botNumber)) {
-                console.log(`[ANTI_DELETE] Bot deleted a message, ignoring`);
-                messageStore.delete(deletedId);
-                return;
-            }
+            // Don't show if bot deleted it (FIXED: Better comparison for group deletes)
+            // Normalize both numbers by removing non-digits for comparison
+            const normalizedDeletedBy = deletedByNumber.replace(/[^0-9]/g, '');
+            const normalizedBotNumber = botNumber.replace(/[^0-9]/g, '');
             
-            // Don't show if the deleted message was originally sent by bot
-            if (sentByNumber.includes(botNumber)) {
-                console.log(`[ANTI_DELETE] Deleted message was from bot, ignoring`);
+            // Check if deleted by bot
+            const isDeletedByBot = normalizedDeletedBy === normalizedBotNumber;
+            
+            if (isDeletedByBot) {
+                console.log(`[ANTI_DELETE] Skipping notification - Bot deleted message`);
                 messageStore.delete(deletedId);
                 return;
             }
@@ -1203,19 +1193,21 @@ function setupMessageHandlers(conn, number, messageStore) {
             const buttonCmd = events.commands.find((cmd) => {
                 if (cmd.on !== "body") return false;
                 
-                // Check if pattern matches
-                if (cmd.pattern) {
+                // Check if this command's pattern matches the body
+                let patternMatches = false;
+                
+                if (command.pattern) {
                     // String pattern - check if buttonResponseId starts with it
-                    if (typeof cmd.pattern === 'string') {
-                        if (buttonResponseId.startsWith(cmd.pattern)) {
-                            console.log(`[BUTTON HANDLER] Matched string pattern: ${cmd.pattern}`);
+                    if (typeof command.pattern === 'string') {
+                        if (buttonResponseId.startsWith(command.pattern)) {
+                            console.log(`[BUTTON HANDLER] Matched string pattern: ${command.pattern}`);
                             return true;
                         }
                     }
                     // Regex pattern
-                    else if (cmd.pattern instanceof RegExp) {
-                        if (cmd.pattern.test(buttonResponseId)) {
-                            console.log(`[BUTTON HANDLER] Matched regex pattern: ${cmd.pattern}`);
+                    else if (command.pattern instanceof RegExp) {
+                        if (command.pattern.test(buttonResponseId)) {
+                            console.log(`[BUTTON HANDLER] Matched regex pattern: ${command.pattern}`);
                             return true;
                         }
                     }
