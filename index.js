@@ -916,28 +916,31 @@ function setupMessageHandlers(conn, number, messageStore) {
         // ANTI DELETE SYSTEM - SAVE MESSAGES
         // =======================================
         
-        // Get sender number
-        const msgSender = mek.key.participant || mek.key.remoteJid;
-        const msgSenderNumber = msgSender.split('@')[0];
-        
         // IMPORTANT: Use currentConfig (reloaded) instead of config directly
-        // Also skip saving messages sent by bot itself
-        if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && 
-            !mek.key.fromMe && 
-            !msgSenderNumber.includes(botNumber)) {
-            // Save all message types to store
-            messageStore.set(mek.key.id, {
-                key: mek.key,
-                message: mek.message,
-                jid: mek.key.remoteJid,
-                sender: mek.key.participant || mek.key.remoteJid,
-                timestamp: Date.now()
-            });
+        // Skip saving messages sent by bot itself (check fromMe first, then sender number)
+        if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && !mek.key.fromMe) {
+            // Double check: get sender and verify it's not bot
+            const msgSender = mek.key.participant || mek.key.remoteJid;
+            const msgSenderNumber = msgSender.split('@')[0];
             
-            // Limit store size to prevent memory issues (keep last 1000 messages)
-            if (messageStore.size > 1000) {
-                const firstKey = messageStore.keys().next().value;
-                messageStore.delete(firstKey);
+            // Skip if sender is bot (extra safety check)
+            if (msgSenderNumber.includes(botNumber)) {
+                console.log(`[ANTI_DELETE] Skipping bot's own message from ${msgSenderNumber}`);
+            } else {
+                // Save all message types to store
+                messageStore.set(mek.key.id, {
+                    key: mek.key,
+                    message: mek.message,
+                    jid: mek.key.remoteJid,
+                    sender: mek.key.participant || mek.key.remoteJid,
+                    timestamp: Date.now()
+                });
+                
+                // Limit store size to prevent memory issues (keep last 1000 messages)
+                if (messageStore.size > 1000) {
+                    const firstKey = messageStore.keys().next().value;
+                    messageStore.delete(firstKey);
+                }
             }
         }
 
@@ -960,12 +963,14 @@ function setupMessageHandlers(conn, number, messageStore) {
             
             // Don't show if bot deleted it
             if (deletedByNumber.includes(botNumber)) {
+                console.log(`[ANTI_DELETE] Bot deleted a message, ignoring`);
                 messageStore.delete(deletedId);
                 return;
             }
             
             // Don't show if the deleted message was originally sent by bot
             if (sentByNumber.includes(botNumber)) {
+                console.log(`[ANTI_DELETE] Deleted message was from bot, ignoring`);
                 messageStore.delete(deletedId);
                 return;
             }
