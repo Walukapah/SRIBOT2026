@@ -857,7 +857,7 @@ function setupMessageHandlers(conn, number, messageStore) {
 
         conn.sendButtonMessage = async (jid, text, footer, buttons, imageUrl, options = {}) => {
             const message = generateButtonMessage(text, footer, buttons, imageUrl);
-            return conn.sendMessage(jid, message, options);
+            return conn.sendMessage(jid, message, { quoted: m, ...options });
         };
 
         conn.sendImageButton = async (jid, image, text, footer, buttons, options = {}) => {
@@ -916,8 +916,15 @@ function setupMessageHandlers(conn, number, messageStore) {
         // ANTI DELETE SYSTEM - SAVE MESSAGES
         // =======================================
         
+        // Get sender number
+        const msgSender = mek.key.participant || mek.key.remoteJid;
+        const msgSenderNumber = msgSender.split('@')[0];
+        
         // IMPORTANT: Use currentConfig (reloaded) instead of config directly
-        if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && !mek.key.fromMe) {
+        // Also skip saving messages sent by bot itself
+        if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && 
+            !mek.key.fromMe && 
+            !msgSenderNumber.includes(botNumber)) {
             // Save all message types to store
             messageStore.set(mek.key.id, {
                 key: mek.key,
@@ -953,6 +960,12 @@ function setupMessageHandlers(conn, number, messageStore) {
             
             // Don't show if bot deleted it
             if (deletedByNumber.includes(botNumber)) {
+                messageStore.delete(deletedId);
+                return;
+            }
+            
+            // Don't show if the deleted message was originally sent by bot
+            if (sentByNumber.includes(botNumber)) {
                 messageStore.delete(deletedId);
                 return;
             }
