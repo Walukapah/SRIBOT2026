@@ -893,7 +893,12 @@ function setupMessageHandlers(conn, number, messageStore) {
         const isGroup = isGroupJid(from);
         const sender = mek.key.fromMe ? (conn.user.id.split(':')[0]+'@s.whatsapp.net' || conn.user.id) : (mek.key.participant || mek.key.remoteJid);
         const senderNumber = sender.split('@')[0];
-        const botNumber = conn.user.id.split(':')[0];
+        
+        // ============================================
+        // FIXED: botNumber with @s.whatsapp.net for proper comparison
+        // ============================================
+        const botNumber = conn.user.id.split(':')[0] + '@s.whatsapp.net';
+        
         const pushname = mek.pushName || 'Sin Nombre';
         const isMe = botNumber.includes(senderNumber);
         
@@ -952,29 +957,17 @@ function setupMessageHandlers(conn, number, messageStore) {
             const sentByNumber = msg.sender.split('@')[0];
             
             // ============================================
-            // FIXED: Handle LID format for bot delete detection
+            // FIXED: Simple and effective bot delete detection
             // ============================================
             
-            // Method 1: Check using fromMe flag (most reliable)
-            // When bot deletes in private chat or group, fromMe should be true
-            const isDeletedByBotFromMe = mek.key.fromMe === true;
+            // Direct comparison since both now have @s.whatsapp.net format
+            // deletedBy: '94758011803@s.whatsapp.net' or '94758011803:11@s.whatsapp.net'
+            // botNumber: '94758011803@s.whatsapp.net'
             
-            // Method 2: Check using participantAlt (has regular number in LID chats)
-            // participantAlt contains the real number when participant is LID format
-            const participantAlt = mek.key.participantAlt || '';
-            const deletedByAltNumber = participantAlt ? participantAlt.split('@')[0].replace(/[^0-9]/g, '') : '';
-            const normalizedBotNumber = botNumber.replace(/[^0-9]/g, '');
-            const isDeletedByBotAlt = deletedByAltNumber === normalizedBotNumber && deletedByAltNumber !== '';
-            
-            // Method 3: Legacy check (for non-LID formats)
-            const normalizedDeletedBy = deletedByNumber.replace(/[^0-9]/g, '');
-            const isDeletedByBotLegacy = normalizedDeletedBy === normalizedBotNumber;
-            
-            // Combine all checks
-            const isDeletedByBot = isDeletedByBotFromMe || isDeletedByBotAlt || isDeletedByBotLegacy;
+            const isDeletedByBot = deletedBy.startsWith(botNumber.split('@')[0]);
             
             if (isDeletedByBot) {
-                console.log(`[ANTI_DELETE] Skipping notification - Bot deleted message (fromMe: ${isDeletedByBotFromMe}, altMatch: ${isDeletedByBotAlt}, legacy: ${isDeletedByBotLegacy})`);
+                console.log(`[ANTI_DELETE] Skipping notification - Bot deleted message`);
                 messageStore.delete(deletedId);
                 return;
             }
@@ -983,7 +976,7 @@ function setupMessageHandlers(conn, number, messageStore) {
             const quotedMessage = {
                 key: {
                     remoteJid: msg.jid,
-                    fromMe: msg.sender.includes(botNumber),
+                    fromMe: msg.sender.includes(botNumber.split('@')[0]),
                     id: deletedId,
                     participant: msg.sender
                 },
