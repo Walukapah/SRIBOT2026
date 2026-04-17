@@ -935,7 +935,7 @@ function setupMessageHandlers(conn, number, messageStore) {
         }
 
         // =======================================
-        // HANDLE DELETE - FIXED VERSION
+        // HANDLE DELETE
         // =======================================
 
         if (mek.message?.protocolMessage?.type === 0) { // 0 = REVOKE
@@ -951,14 +951,8 @@ function setupMessageHandlers(conn, number, messageStore) {
             const deletedByNumber = deletedBy.split('@')[0];
             const sentByNumber = msg.sender.split('@')[0];
             
-            // ============================================
-            // ANTI DELETE FIX: Don't show if bot is involved
-            // ============================================
-            // Don't show anti-delete if:
-            // 1. Message was originally sent by bot (msg.key.fromMe)
-            // 2. Bot deleted the message (deletedByNumber)
-            // 3. Message sender is bot (sentByNumber)
-            if (msg.key.fromMe || deletedByNumber.includes(botNumber) || sentByNumber.includes(botNumber)) {
+            // Don't show if bot deleted it
+            if (deletedByNumber.includes(botNumber)) {
                 messageStore.delete(deletedId);
                 return;
             }
