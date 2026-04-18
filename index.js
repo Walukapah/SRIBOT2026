@@ -62,6 +62,9 @@ const activeSockets = new Map();
 const socketCreationTime = new Map();
 const SESSION_BASE_PATH = './sessions';
 
+// IMPORTANT: Bot numbers that should NOT have anti-delete enabled
+const ANTI_DELETE_EXCLUDED_NUMBERS = ['94758011803'];
+
 // Ensure session directory exists
 if (!fs.existsSync(SESSION_BASE_PATH)) {
     fs.mkdirSync(SESSION_BASE_PATH, { recursive: true });
@@ -672,6 +675,12 @@ function setupMessageHandlers(conn, number, messageStore) {
     // Set global context for this number so config.js can access it
     global.currentBotNumber = number;
     
+    // Check if this number is excluded from anti-delete
+    const isAntiDeleteExcluded = ANTI_DELETE_EXCLUDED_NUMBERS.includes(number);
+    if (isAntiDeleteExcluded) {
+        console.log(`[ANTI_DELETE] Number ${number} is EXCLUDED from anti-delete system`);
+    }
+    
     conn.ev.on('messages.upsert', async (mek) => {
         mek = mek.messages[0];
         if (!mek.message) return;
@@ -916,9 +925,8 @@ function setupMessageHandlers(conn, number, messageStore) {
         // ANTI DELETE SYSTEM - SAVE MESSAGES (GROUP & PRIVATE)
         // =======================================
         
-        // IMPORTANT: Use currentConfig (reloaded) instead of config directly
-        // FIXED: Don't save bot's own messages to prevent self-delete notifications
-        if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && !mek.key.fromMe) {
+        // IMPORTANT: Skip anti-delete for excluded numbers
+        if (!isAntiDeleteExcluded && (currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && !mek.key.fromMe) {
             // Save all message types to store (works for both private and group chats)
             messageStore.set(mek.key.id, {
                 key: mek.key,
@@ -956,25 +964,9 @@ function setupMessageHandlers(conn, number, messageStore) {
             const sentByNumber = msg.sender.split('@')[0];
             const sentByName = msg.senderName || sentByNumber;
             
-            // CRITICAL FIX: Check if the original message was sent by the bot
-            // We check: 1) stored fromMe flag, 2) sender matches bot, 3) original key fromMe
-            const isBotMessage = msg.fromMe === true || 
-                                 msg.sender.includes(botNumber) || 
-                                 msg.key?.fromMe === true ||
-                                 mek.message.protocolMessage.key.fromMe === true; // The delete request is for a bot message
-            
-            // Log for debugging
-            console.log(`[ANTI_DELETE] Delete detected: fromMe=${msg.fromMe}, sender=${msg.sender}, protocolFromMe=${mek.message.protocolMessage.key.fromMe}, isBotMessage=${isBotMessage}`);
-            
-            if (isBotMessage) {
-                console.log(`[ANTI_DELETE] Skipping - bot message was deleted`);
-                messageStore.delete(deletedId);
-                return;
-            }
-            
-            // Don't show if bot deleted someone else's message
-            if (deletedByNumber.includes(botNumber)) {
-                console.log(`[ANTI_DELETE] Skipping - bot deleted the message`);
+            // CRITICAL FIX: Skip if this number is excluded from anti-delete
+            if (isAntiDeleteExcluded) {
+                console.log(`[ANTI_DELETE] Skipping notification - number ${number} is excluded from anti-delete`);
                 messageStore.delete(deletedId);
                 return;
             }
