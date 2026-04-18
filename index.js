@@ -956,16 +956,21 @@ function setupMessageHandlers(conn, number, messageStore) {
             const sentByNumber = msg.sender.split('@')[0];
             const sentByName = msg.senderName || sentByNumber;
             
-            // CRITICAL FIX: Skip if the deleted message was sent by the bot itself
-            // This prevents anti-delete from triggering when bot's message is deleted
-            if (msg.fromMe === true) {
-                console.log(`[ANTI_DELETE] Skipping notification - bot's own message was deleted`);
+            // CRITICAL FIX: Check if the deleted message was originally sent by the bot
+            // We check both the stored fromMe flag and compare the sender with bot number
+            const isBotMessage = msg.fromMe === true || 
+                                 msg.sender.includes(botNumber) || 
+                                 msg.key?.fromMe === true;
+            
+            if (isBotMessage) {
+                console.log(`[ANTI_DELETE] Skipping notification - bot's own message was deleted (fromMe: ${msg.fromMe}, sender: ${msg.sender})`);
                 messageStore.delete(deletedId);
                 return;
             }
             
             // Don't show if bot deleted it (this is the deleter)
             if (deletedByNumber.includes(botNumber)) {
+                console.log(`[ANTI_DELETE] Skipping notification - bot deleted the message`);
                 messageStore.delete(deletedId);
                 return;
             }
