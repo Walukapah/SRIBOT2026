@@ -1263,12 +1263,107 @@ function setupMessageHandlers(conn, number, messageStore) {
                 
                 if (patternMatches) {
                     try {
-                        command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                        cmd.function(conn, mek, m, {from, l, quoted, body, isCmd, command: cmd, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                        console.log(`[BUTTON HANDLER] Body handler matched: ${cmd.pattern}`);
+                    } catch (e) {
+                        console.error("[BODY HANDLER ERROR] " + e);
+                    }
+                }
+            });
+            
+            // If no command matched, use fallback responses
+            if (!buttonCmd) {
+                console.log(`[BUTTON HANDLER] No handler found for: ${buttonResponseId}`);
+                
+                // Fallback to old buttonResponses object
+                const buttonResponses = {
+                    'btn_yes': '✅ You clicked YES! Great choice.',
+                    'btn_no': '❌ You clicked NO! Maybe next time.',
+                    'btn_status': '🤖 Bot is running perfectly on SRI-BOT!',
+                    'btn_help': 'ℹ️ Use .menu for full command list or .testbuttons for button demo',
+                    'menu_ping': '🚀 Use .ping command to check bot response speed!',
+                    'menu_owner': '👤 Use .owner to contact the bot owner.',
+                    'menu_about': 'ℹ️ SRI-BOT is a multi-number WhatsApp bot with GitHub integration.',
+                    'cmd_ping': '🚀 Use .ping command to check bot response speed!',
+                    'cmd_owner': '👤 Use .owner to contact the bot owner.',
+                    'cmd_status': '📊 Bot Status:\n• Uptime: ' + runtime(process.uptime()) + '\n• Version: ' + currentConfig.VERSION,
+                    'cmd_invite': '🔗 Use .invite to get group invite link.',
+                    'cmd_promote': '👮 Use .promote @user to make someone admin.',
+                    'cmd_remove': '🚫 Use .kick @user to remove a member.',
+                    'cmd_joke': '😂 Joke feature coming soon!',
+                    'cmd_sticker': '🖼️ Use .sticker to create stickers from images.',
+                    'cmd_ytmusic': '🎵 Use .ytmp3 or .play to download music.',
+                    'cmd_all': '📜 Full command list:\n.ping - Check speed\n.owner - Contact owner\n.menu - Show menu\n.testbuttons - Button demo',
+                    'img_like': '❤️ Thanks for liking! We appreciate your support.',
+                    'img_share': '🔁 Sharing is caring! Spread the word about SRI-BOT.'
+                };
+                
+                const responseText = buttonResponses[buttonResponseId];
+                if (responseText) {
+                    await reply(responseText);
+                } else if (buttonResponseId.startsWith('cmd_') || buttonResponseId.startsWith('btn_') || buttonResponseId.startsWith('menu_') || buttonResponseId.startsWith('img_')) {
+                    await reply(`📌 You selected: *${buttonResponseId}*\n\nThis feature is being developed!`);
+                }
+            }
+        }
+        
+        // =======================================
+        // EVENT HANDLERS (on: body, text, etc.)
+        // =======================================
+        // FIXED: Stop after first match to prevent duplicate messages
+        
+        let handled = false;
+        
+        for (const command of events.commands) {
+            if (handled) break; // Stop if already handled
+            
+            if (body && command.on === "body") {
+                // Skip if already handled as button response
+                if (isButtonResponse && buttonResponseId) continue;
+                
+                // Check if this command's pattern matches the body
+                let patternMatches = false;
+                
+                if (command.pattern) {
+                    if (typeof command.pattern === 'string') {
+                        patternMatches = body.trim() === command.pattern || body.startsWith(command.pattern);
+                    } else if (command.pattern instanceof RegExp) {
+                        patternMatches = command.pattern.test(body);
+                    }
+                }
+                
+                if (patternMatches) {
+                    try {
+                        await command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
                         handled = true; // Mark as handled
                         console.log(`[HANDLER] Body handler matched: ${command.pattern}`);
                     } catch (e) {
                         console.error("[BODY HANDLER ERROR] " + e);
                     }
+                }
+            } else if (mek.q && command.on === "text") {
+                try {
+                    command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                } catch (e) {
+                    console.error("[TEXT HANDLER ERROR] " + e);
+                }
+            } else if (
+                (command.on === "image" || command.on === "photo") &&
+                mek.type === "imageMessage"
+            ) {
+                try {
+                    command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                } catch (e) {
+                    console.error("[IMAGE HANDLER ERROR] " + e);
+                }
+            } else if (
+                command.on === "sticker" &&
+                mek.type === "stickerMessage"
+            ) {
+                try {
+                    command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                } catch (e) {
+                    console.error("[STICKER HANDLER ERROR] " + e);
                 }
             }
         }
