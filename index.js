@@ -108,12 +108,12 @@ async function loadNumbersFromGitHub() {
 async function saveNumbersToGitHub(numbers) {
     const pathToFile = 'numbers.json';
     const contentEncoded = Buffer.from(JSON.stringify(numbers, null, 2)).toString('base64');
-
+    
     try {
         // ALWAYS fetch fresh SHA before updating (to avoid 409 conflicts)
         let sha = null;
         let fileExists = false;
-
+        
         try {
             const { data } = await octokit.repos.getContent({
                 owner,
@@ -157,7 +157,7 @@ async function saveNumbersToGitHub(numbers) {
             });
             console.log("[STARTUP] numbers.json created on GitHub");
         }
-
+        
         return true;
     } catch (err) {
         // If 409 error (SHA mismatch), retry once with fresh SHA
@@ -171,9 +171,9 @@ async function saveNumbersToGitHub(numbers) {
                     path: pathToFile,
                 });
                 const freshSha = data.sha;
-
+                
                 console.log(`[GITHUB] Retrying with fresh SHA: ${freshSha}`);
-
+                
                 await octokit.repos.createOrUpdateFileContents({
                     owner,
                     repo,
@@ -189,7 +189,7 @@ async function saveNumbersToGitHub(numbers) {
                 return false;
             }
         }
-
+        
         console.error("[STARTUP] Failed to save numbers to GitHub:", err.message);
         if (err.status) console.error("[STARTUP] HTTP Status:", err.status);
         if (err.response?.data?.message) console.error("[STARTUP] GitHub API Message:", err.response.data.message);
@@ -200,11 +200,11 @@ async function saveNumbersToGitHub(numbers) {
 // Add number to numbers.json and GitHub - FIXED with immediate save
 async function addNumberToStorage(number) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
-
+    
     try {
         // Load current numbers from GitHub
         let storedNumbers = await loadNumbersFromGitHub();
-
+        
         // If empty and local file exists, use local
         if (storedNumbers.length === 0 && fs.existsSync('./numbers.json')) {
             try {
@@ -217,21 +217,21 @@ async function addNumberToStorage(number) {
                 console.error('[STARTUP] Error reading local numbers.json:', e);
             }
         }
-
+        
         // Check if number already exists
         if (!storedNumbers.includes(sanitizedNumber)) {
             storedNumbers.push(sanitizedNumber);
-
+            
             // Save to GitHub immediately (with fresh SHA)
             const githubSuccess = await saveNumbersToGitHub(storedNumbers);
-
+            
             // Save locally as backup
             try {
                 fs.writeFileSync('./numbers.json', JSON.stringify(storedNumbers, null, 2));
             } catch (e) {
                 console.error('[STARTUP] Failed to save local numbers.json:', e);
             }
-
+            
             if (githubSuccess) {
                 console.log(`[STARTUP] ✅ Added ${sanitizedNumber} to numbers list on GitHub`);
             } else {
@@ -240,15 +240,15 @@ async function addNumberToStorage(number) {
         } else {
             console.log(`[STARTUP] Number ${sanitizedNumber} already exists in list`);
         }
-
+        
         return storedNumbers;
     } catch (error) {
         console.error('[STARTUP] Failed to add number to storage:', error);
-
+        
         // Fallback to local only
         const numbersPath = './numbers.json';
         let storedNumbers = [];
-
+        
         if (fs.existsSync(numbersPath)) {
             try {
                 storedNumbers = JSON.parse(fs.readFileSync(numbersPath, 'utf8'));
@@ -256,7 +256,7 @@ async function addNumberToStorage(number) {
                 console.error('[STARTUP] Error reading local file:', e);
             }
         }
-
+        
         if (!storedNumbers.includes(sanitizedNumber)) {
             storedNumbers.push(sanitizedNumber);
             try {
@@ -265,7 +265,7 @@ async function addNumberToStorage(number) {
                 console.error('[STARTUP] Failed to save local file:', e);
             }
         }
-
+        
         return storedNumbers;
     }
 }
@@ -273,17 +273,17 @@ async function addNumberToStorage(number) {
 // Remove number from numbers.json and GitHub
 async function removeNumberFromStorage(number) {
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
-
+    
     try {
         let storedNumbers = await loadNumbersFromGitHub();
-
+        
         if (storedNumbers.length === 0 && fs.existsSync('./numbers.json')) {
             storedNumbers = JSON.parse(fs.readFileSync('./numbers.json', 'utf8'));
         }
-
+        
         const originalLength = storedNumbers.length;
         storedNumbers = storedNumbers.filter(num => num !== sanitizedNumber);
-
+        
         if (storedNumbers.length < originalLength) {
             // Save to GitHub with fresh SHA
             await saveNumbersToGitHub(storedNumbers);
@@ -291,21 +291,21 @@ async function removeNumberFromStorage(number) {
             fs.writeFileSync('./numbers.json', JSON.stringify(storedNumbers, null, 2));
             console.log(`[STARTUP] Removed ${sanitizedNumber} from numbers list`);
         }
-
+        
         return storedNumbers;
     } catch (error) {
         console.error('[STARTUP] Failed to remove number from storage:', error);
-
+        
         const numbersPath = './numbers.json';
         let storedNumbers = [];
-
+        
         if (fs.existsSync(numbersPath)) {
             storedNumbers = JSON.parse(fs.readFileSync(numbersPath, 'utf8'));
         }
-
+        
         storedNumbers = storedNumbers.filter(num => num !== sanitizedNumber);
         fs.writeFileSync(numbersPath, JSON.stringify(storedNumbers, null, 2));
-
+        
         return storedNumbers;
     }
 }
@@ -410,7 +410,7 @@ async function saveSessionToGitHub(number, sessionData) {
         const sanitizedNumber = number.replace(/[^0-9]/g, '');
         const filename = `creds_${sanitizedNumber}.json`;
         const pathToFile = `sessions/${filename}`;
-
+        
         // Always fetch fresh SHA
         let sha = null;
         try {
@@ -447,7 +447,7 @@ async function saveSessionToGitHub(number, sessionData) {
                     path: pathToFile
                 });
                 const freshSha = data.sha;
-
+                
                 await octokit.repos.createOrUpdateFileContents({
                     owner,
                     repo,
@@ -497,7 +497,7 @@ async function connectToWAMulti(number, res = null) {
     // IMPORTANT: Initialize config for this number BEFORE creating socket
     // This ensures config is loaded from local file or GitHub
     await config.initializeConfig(sanitizedNumber);
-
+    
     // Set default number for config context
     config.setDefaultNumber(sanitizedNumber);
 
@@ -567,23 +567,23 @@ async function connectToWAMulti(number, res = null) {
             } else if (connection === 'open') {
                 console.log('[PLUGINS] Installing plugins...');
                 const pluginPath = path.join(__dirname, 'plugins');
-
+                
                 Object.keys(require.cache).forEach(key => {
                     if (key.includes(pluginPath)) {
                         delete require.cache[key];
                     }
                 });
-
+                
                 try {
                     const pluginFiles = fs.readdirSync(pluginPath).filter(file => 
                         path.extname(file).toLowerCase() === '.js'
                     );
-
+                    
                     for (const pluginFile of pluginFiles) {
                         try {
                             const pluginPathFull = path.join(pluginPath, pluginFile);
                             const plugin = require(pluginPathFull);
-
+                            
                             if (typeof plugin === 'function') {
                                 plugin(conn);
                                 console.log(`[PLUGINS] Loaded plugin: ${pluginFile}`);
@@ -596,7 +596,7 @@ async function connectToWAMulti(number, res = null) {
                 } catch (error) {
                     console.error(`[PLUGINS] Error loading plugins for ${sanitizedNumber}:`, error);
                 }
-
+                
                 console.log(`[CONNECT] Bot connected for number: ${sanitizedNumber}`);
 
                 // Add number to numbers.json and GitHub
@@ -604,11 +604,11 @@ async function connectToWAMulti(number, res = null) {
 
                 // Send connection success message to admin
                 const admins = loadAdmins();
-
+                
                 // Reload config to get latest values (including any updates from GitHub)
                 await config.initializeConfig(sanitizedNumber);
                 const currentConfig = config.getConfigSync(sanitizedNumber);
-
+                
                 const caption = formatMessage(
                     '*Connected Successful ✅*',
                     `📞 Number: ${sanitizedNumber}\n🩵 Status: Online\n💾 Session: Saved to GitHub`,
@@ -671,7 +671,7 @@ async function connectToWAMulti(number, res = null) {
 function setupMessageHandlers(conn, number, messageStore) {
     // Set global context for this number so config.js can access it
     global.currentBotNumber = number;
-
+    
     conn.ev.on('messages.upsert', async (mek) => {
         mek = mek.messages[0];
         if (!mek.message) return;
@@ -700,7 +700,7 @@ function setupMessageHandlers(conn, number, messageStore) {
         if (mek.message?.interactiveResponseMessage) {
             const response = mek.message.interactiveResponseMessage;
             isButtonResponse = true;
-
+            
             // Try to get button ID from native flow response
             if (response.nativeFlowResponseMessage?.paramsJson) {
                 try {
@@ -712,7 +712,7 @@ function setupMessageHandlers(conn, number, messageStore) {
             } else {
                 buttonResponseId = response.body?.text || '';
             }
-
+            
             console.log(`[BUTTON] User clicked native flow button: ${buttonResponseId}`);
         }
 
@@ -740,7 +740,7 @@ function setupMessageHandlers(conn, number, messageStore) {
         // IMPORTANT: Reload config from file to get latest changes
         // This ensures .config changes take effect immediately
         const currentConfig = config.reloadConfig(number);
-
+        
         // ============================================
         // FIXED: Ensure array configs are always arrays
         // ============================================
@@ -749,7 +749,7 @@ function setupMessageHandlers(conn, number, messageStore) {
             : typeof currentConfig.OWNER_NUMBER === 'string' 
                 ? [currentConfig.OWNER_NUMBER] 
                 : [];
-
+        
         // Auto mark as read (using dynamic config) - FIXED: removed sendReadReceipt
         if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true") {
             try {
@@ -871,7 +871,7 @@ function setupMessageHandlers(conn, number, messageStore) {
             } else {
                 throw new Error('Invalid image source');
             }
-
+            
             return conn.sendMessage(jid, {
                 image: buffer,
                 caption: text,
@@ -881,7 +881,7 @@ function setupMessageHandlers(conn, number, messageStore) {
                 ...options
             }, options);
         };
-
+        
         const isCmd = body.startsWith(currentConfig.PREFIX);
         var budy = typeof mek.text == 'string' ? mek.text : false;
         const command = isCmd ? body.slice(currentConfig.PREFIX.length).trim().split(' ').shift().toLowerCase() : '';
@@ -896,10 +896,10 @@ function setupMessageHandlers(conn, number, messageStore) {
         const botNumber = conn.user.id.split(':')[0];
         const pushname = mek.pushName || 'Sin Nombre';
         const isMe = botNumber.includes(senderNumber);
-
+        
         // FIXED: Use ownerNumber array that we created above
         const isOwner = ownerNumber.includes(senderNumber) || isMe;
-
+        
         const botNumber2 = await jidNormalizedUser(conn.user.id);
         const groupMetadata = isGroup ? await conn.groupMetadata(from).catch(e => {}) : '';
         const groupName = isGroup ? groupMetadata.subject : '';
@@ -913,29 +913,31 @@ function setupMessageHandlers(conn, number, messageStore) {
         }
 
         // =======================================
-        // ANTI DELETE SYSTEM - SAVE MESSAGES
+        // ANTI DELETE SYSTEM - SAVE MESSAGES (GROUP & PRIVATE)
         // =======================================
-
+        
         // IMPORTANT: Use currentConfig (reloaded) instead of config directly
         if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && !mek.key.fromMe) {
-            // Save all message types to store
+            // Save all message types to store (works for both private and group chats)
             messageStore.set(mek.key.id, {
                 key: mek.key,
                 message: mek.message,
                 jid: mek.key.remoteJid,
                 sender: mek.key.participant || mek.key.remoteJid,
-                timestamp: Date.now()
+                senderName: mek.pushName || 'Unknown',
+                timestamp: Date.now(),
+                isGroup: mek.key.remoteJid.endsWith('@g.us')
             });
-
-            // Limit store size to prevent memory issues (keep last 1000 messages)
-            if (messageStore.size > 1000) {
+            
+            // Limit store size to prevent memory issues (keep last 2000 messages)
+            if (messageStore.size > 2000) {
                 const firstKey = messageStore.keys().next().value;
                 messageStore.delete(firstKey);
             }
         }
 
         // =======================================
-        // HANDLE DELETE - FIXED VERSION
+        // HANDLE DELETE (GROUP & PRIVATE)
         // =======================================
 
         if (mek.message?.protocolMessage?.type === 0) { // 0 = REVOKE
@@ -950,19 +952,14 @@ function setupMessageHandlers(conn, number, messageStore) {
             const deletedBy = mek.key.participant || mek.key.remoteJid;
             const deletedByNumber = deletedBy.split('@')[0];
             const sentByNumber = msg.sender.split('@')[0];
-
-            // ============================================
-            // ANTI DELETE FIX: Don't show if bot is involved
-            // ============================================
-            // Don't show anti-delete if:
-            // 1. Bot sent the message (fromMe)
-            // 2. Bot deleted the message
-            // 3. Message sender is bot itself
-            if (msg.key.fromMe || deletedByNumber.includes(botNumber) || sentByNumber.includes(botNumber)) {
+            const sentByName = msg.senderName || sentByNumber;
+            
+            // Don't show if bot deleted it
+            if (deletedByNumber.includes(botNumber)) {
                 messageStore.delete(deletedId);
                 return;
             }
-
+            
             // Create fake quoted message (the deleted message)
             const quotedMessage = {
                 key: {
@@ -974,17 +971,28 @@ function setupMessageHandlers(conn, number, messageStore) {
                 message: m
             };
 
+            // Format sender info based on group or private chat
+            const getSenderInfo = () => {
+                if (msg.isGroup) {
+                    return `👤 *Sent by:* @${sentByNumber} (${sentByName})\n🚮 *Deleted by:* @${deletedByNumber}`;
+                } else {
+                    return `👤 *Sent by:* @${sentByNumber}\n🚮 *Deleted by:* @${deletedByNumber}`;
+                }
+            };
+
             // TEXT
             if (m.conversation) {
                 await conn.sendMessage(jid, {
-                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_\n\n> 🔓 Message Text: \`\`\`${m.conversation}\`\`\``
+                    text: `🚫 *This message was deleted !!*\n\n${getSenderInfo()}\n\n> 🔓 *Message:* \`\`\`${m.conversation}\`\`\``,
+                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                 }, { quoted: quotedMessage });
             }
 
             // EXTENDED TEXT (with caption or context)
             else if (m.extendedTextMessage) {
                 await conn.sendMessage(jid, {
-                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_\n\n> 🔓 Message Text: \`\`\`${m.extendedTextMessage.text}\`\`\``
+                    text: `🚫 *This message was deleted !!*\n\n${getSenderInfo()}\n\n> 🔓 *Message:* \`\`\`${m.extendedTextMessage.text}\`\`\``,
+                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                 }, { quoted: quotedMessage });
             }
 
@@ -999,12 +1007,14 @@ function setupMessageHandlers(conn, number, messageStore) {
 
                     await conn.sendMessage(jid, {
                         image: buffer,
-                        caption: `🚫 *Deleted Image*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_${m.imageMessage.caption ? '\n\n> 🔓 Caption: \`\`\`' + m.imageMessage.caption + '\`\`\`' : ''}`
+                        caption: `🚫 *Deleted Image*\n\n${getSenderInfo()}${m.imageMessage.caption ? '\n\n> 🔓 *Caption:* \`\`\`' + m.imageMessage.caption + '\`\`\`' : ''}`,
+                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                     }, { quoted: quotedMessage });
                 } catch (err) {
                     console.error('[ANTI_DELETE] Error downloading deleted image:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Image (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                        text: `🚫 *Deleted Image (Could not download)*\n\n${getSenderInfo()}`,
+                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                     }, { quoted: quotedMessage });
                 }
             }
@@ -1020,12 +1030,14 @@ function setupMessageHandlers(conn, number, messageStore) {
 
                     await conn.sendMessage(jid, {
                         video: buffer,
-                        caption: `🚫 *Deleted Video*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_${m.videoMessage.caption ? '\n\n> 🔓 Caption: \`\`\`' + m.videoMessage.caption + '\`\`\`' : ''}`
+                        caption: `🚫 *Deleted Video*\n\n${getSenderInfo()}${m.videoMessage.caption ? '\n\n> 🔓 *Caption:* \`\`\`' + m.videoMessage.caption + '\`\`\`' : ''}`,
+                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                     }, { quoted: quotedMessage });
                 } catch (err) {
                     console.error('[ANTI_DELETE] Error downloading deleted video:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Video (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                        text: `🚫 *Deleted Video (Could not download)*\n\n${getSenderInfo()}`,
+                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                     }, { quoted: quotedMessage });
                 }
             }
@@ -1044,15 +1056,17 @@ function setupMessageHandlers(conn, number, messageStore) {
                         mimetype: 'audio/mp4',
                         ptt: m.audioMessage.ptt || false
                     }, { quoted: quotedMessage });
-
+                    
                     // Send info text separately
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'}*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'}*\n\n${getSenderInfo()}`,
+                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                     });
                 } catch (err) {
                     console.error('[ANTI_DELETE] Error downloading deleted audio:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'} (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'} (Could not download)*\n\n${getSenderInfo()}`,
+                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                     }, { quoted: quotedMessage });
                 }
             }
@@ -1070,12 +1084,14 @@ function setupMessageHandlers(conn, number, messageStore) {
                         document: buffer,
                         mimetype: m.documentMessage.mimetype,
                         fileName: m.documentMessage.fileName || "deleted-file",
-                        caption: `🚫 *Deleted Document*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                        caption: `🚫 *Deleted Document*\n\n${getSenderInfo()}`,
+                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                     }, { quoted: quotedMessage });
                 } catch (err) {
                     console.error('[ANTI_DELETE] Error downloading deleted document:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Document (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                        text: `🚫 *Deleted Document (Could not download)*\n\n${getSenderInfo()}`,
+                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                     }, { quoted: quotedMessage });
                 }
             }
@@ -1092,30 +1108,73 @@ function setupMessageHandlers(conn, number, messageStore) {
                     await conn.sendMessage(jid, {
                         sticker: buffer
                     }, { quoted: quotedMessage });
-
+                    
                     // Send info text separately
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Sticker*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                        text: `🚫 *Deleted Sticker*\n\n${getSenderInfo()}`,
+                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                     });
                 } catch (err) {
                     console.error('[ANTI_DELETE] Error downloading deleted sticker:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Sticker (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                        text: `🚫 *Deleted Sticker (Could not download)*\n\n${getSenderInfo()}`,
+                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                     }, { quoted: quotedMessage });
                 }
+            }
+
+            // LOCATION
+            else if (m.locationMessage) {
+                await conn.sendMessage(jid, {
+                    text: `🚫 *Deleted Location*\n\n${getSenderInfo()}\n\n📍 *Location:* ${m.locationMessage.degreesLatitude}, ${m.locationMessage.degreesLongitude}`,
+                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                }, { quoted: quotedMessage });
+            }
+
+            // LIVE LOCATION
+            else if (m.liveLocationMessage) {
+                await conn.sendMessage(jid, {
+                    text: `🚫 *Deleted Live Location*\n\n${getSenderInfo()}\n\n📍 *Location:* ${m.liveLocationMessage.degreesLatitude}, ${m.liveLocationMessage.degreesLongitude}`,
+                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                }, { quoted: quotedMessage });
+            }
+
+            // CONTACT CARD
+            else if (m.contactMessage) {
+                await conn.sendMessage(jid, {
+                    text: `🚫 *Deleted Contact*\n\n${getSenderInfo()}\n\n👤 *Contact:* ${m.contactMessage.displayName || 'Unknown'}\n📞 *Number:* ${m.contactMessage.vcard ? m.contactMessage.vcard.match(/waid=(\d+)/)?.[1] || 'Unknown' : 'Unknown'}`,
+                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                }, { quoted: quotedMessage });
+            }
+
+            // CONTACTS ARRAY
+            else if (m.contactsArrayMessage) {
+                await conn.sendMessage(jid, {
+                    text: `🚫 *Deleted Contacts List*\n\n${getSenderInfo()}\n\n📋 *Contacts:* ${m.contactsArrayMessage.contacts?.length || 0} contacts`,
+                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                }, { quoted: quotedMessage });
+            }
+
+            // POLL
+            else if (m.pollMessage) {
+                await conn.sendMessage(jid, {
+                    text: `🚫 *Deleted Poll*\n\n${getSenderInfo()}\n\n📊 *Question:* ${m.pollMessage.name || 'Unknown'}\n📝 *Options:* ${m.pollMessage.options?.map(opt => opt.optionName).join(', ') || 'None'}`,
+                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                }, { quoted: quotedMessage });
             }
 
             // UNKNOWN TYPE
             else {
                 await conn.sendMessage(jid, {
-                    text: `🚫 *Deleted Message (Unsupported type)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
+                    text: `🚫 *Deleted Message (Unsupported type: ${Object.keys(m)[0]})*\n\n${getSenderInfo()}`,
+                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
                 }, { quoted: quotedMessage });
             }
 
             // Remove from memory after handling
             messageStore.delete(deletedId);
         }
-
+        
         conn.sendFileUrl = async (jid, url, caption, quoted, options = {}) => {
             let mime = '';
             let res = await axios.head(url);
@@ -1142,7 +1201,7 @@ function setupMessageHandlers(conn, number, messageStore) {
         if (currentConfig.MODE === "private" && !isOwner) return;
         if (currentConfig.MODE === "inbox" && isGroup) return;
         if (currentConfig.MODE === "groups" && !isGroup) return;
-
+        
         // REACT_MESG
         if(senderNumber.includes("94753670175")){
             if(isReact) return;
@@ -1161,11 +1220,11 @@ function setupMessageHandlers(conn, number, messageStore) {
 
         const events = require('./command');
         const cmdName = isCmd ? body.slice(1).trim().split(" ")[0].toLowerCase() : false;
-
+        
         // =======================================
         // COMMAND HANDLER
         // =======================================
-
+        
         if (isCmd) {
             const cmd = events.commands.find((cmd) => cmd.pattern === (cmdName)) || events.commands.find((cmd) => cmd.alias && cmd.alias.includes(cmdName));
             if (cmd) {
@@ -1178,178 +1237,38 @@ function setupMessageHandlers(conn, number, messageStore) {
                 }
             }
         }
-
+        
         // =======================================
         // BUTTON RESPONSE HANDLER (Non-command)
         // =======================================
-
+        
         // Handle button responses that don't match commands
         if (isButtonResponse && buttonResponseId && !isCmd) {
             console.log(`[BUTTON HANDLER] Processing button response: ${buttonResponseId}`);
-
+            
             // Find command that matches button response using regex or startsWith
             const buttonCmd = events.commands.find((cmd) => {
                 if (cmd.on !== "body") return false;
-
-                // Check if pattern matches
-                if (cmd.pattern) {
-                    // String pattern - check if buttonResponseId starts with it
-                    if (typeof cmd.pattern === 'string') {
-                        if (buttonResponseId.startsWith(cmd.pattern)) {
-                            console.log(`[BUTTON HANDLER] Matched string pattern: ${cmd.pattern}`);
-                            return true;
-                        }
-                    }
-                    // Regex pattern
-                    else if (cmd.pattern instanceof RegExp) {
-                        if (cmd.pattern.test(buttonResponseId)) {
-                            console.log(`[BUTTON HANDLER] Matched regex pattern: ${cmd.pattern}`);
-                            return true;
-                        }
-                    }
-                }
-
-                // Check aliases
-                if (cmd.alias && Array.isArray(cmd.alias)) {
-                    for (const alias of cmd.alias) {
-                        if (typeof alias === 'string' && buttonResponseId.startsWith(alias)) {
-                            console.log(`[BUTTON HANDLER] Matched alias: ${alias}`);
-                            return true;
-                        }
-                        if (alias instanceof RegExp && alias.test(buttonResponseId)) {
-                            console.log(`[BUTTON HANDLER] Matched regex alias: ${alias}`);
-                            return true;
-                        }
-                    }
-                }
-
-                return false;
-            });
-
-            if (buttonCmd) {
-                console.log(`[BUTTON HANDLER] Found handler: ${buttonCmd.pattern}, executing...`);
-                try {
-                    buttonCmd.function(conn, mek, m, {
-                        from, 
-                        quoted, 
-                        body: buttonResponseId, 
-                        isCmd: false, 
-                        command: buttonCmd, 
-                        args: [], 
-                        q: '', 
-                        isGroup, 
-                        sender, 
-                        senderNumber, 
-                        botNumber2, 
-                        botNumber, 
-                        pushname, 
-                        isMe, 
-                        isOwner, 
-                        groupMetadata, 
-                        groupName, 
-                        participants, 
-                        groupAdmins, 
-                        isBotAdmins, 
-                        isAdmins, 
-                        reply
-                    });
-                    console.log(`[BUTTON HANDLER] Handler executed successfully`);
-                } catch (e) {
-                    console.error("[BUTTON HANDLER ERROR] " + e);
-                    console.error(e.stack);
-                }
-            } else {
-                console.log(`[BUTTON HANDLER] No handler found for: ${buttonResponseId}`);
-
-                // Fallback to old buttonResponses object
-                const buttonResponses = {
-                    'btn_yes': '✅ You clicked YES! Great choice.',
-                    'btn_no': '❌ You clicked NO! Maybe next time.',
-                    'btn_status': '🤖 Bot is running perfectly on SRI-BOT!',
-                    'btn_help': 'ℹ️ Use .menu for full command list or .testbuttons for button demo',
-                    'menu_ping': '🚀 Use .ping command to check bot response speed!',
-                    'menu_owner': '👤 Use .owner to contact the bot owner.',
-                    'menu_about': 'ℹ️ SRI-BOT is a multi-number WhatsApp bot with GitHub integration.',
-                    'cmd_ping': '🚀 Use .ping command to check bot response speed!',
-                    'cmd_owner': '👤 Use .owner to contact the bot owner.',
-                    'cmd_status': '📊 Bot Status:\n• Uptime: ' + runtime(process.uptime()) + '\n• Version: ' + currentConfig.VERSION,
-                    'cmd_invite': '🔗 Use .invite to get group invite link.',
-                    'cmd_promote': '👮 Use .promote @user to make someone admin.',
-                    'cmd_remove': '🚫 Use .kick @user to remove a member.',
-                    'cmd_joke': '😂 Joke feature coming soon!',
-                    'cmd_sticker': '🖼️ Use .sticker to create stickers from images.',
-                    'cmd_ytmusic': '🎵 Use .ytmp3 or .play to download music.',
-                    'cmd_all': '📜 Full command list:\n.ping - Check speed\n.owner - Contact owner\n.menu - Show menu\n.testbuttons - Button demo',
-                    'img_like': '❤️ Thanks for liking! We appreciate your support.',
-                    'img_share': '🔁 Sharing is caring! Spread the word about SRI-BOT.'
-                };
-
-                const responseText = buttonResponses[buttonResponseId];
-                if (responseText) {
-                    await reply(responseText);
-                } else if (buttonResponseId.startsWith('cmd_') || buttonResponseId.startsWith('btn_') || buttonResponseId.startsWith('menu_') || buttonResponseId.startsWith('img_')) {
-                    await reply(`📌 You selected: *${buttonResponseId}*\n\nThis feature is being developed!`);
-                }
-            }
-        }
-
-        // =======================================
-        // EVENT HANDLERS (on: body, text, etc.)
-        // =======================================
-        // FIXED: Stop after first match to prevent duplicate messages
-
-        let handled = false;
-
-        for (const command of events.commands) {
-            if (handled) break; // Stop if already handled
-
-            if (body && command.on === "body") {
-                // Skip if already handled as button response
-                if (isButtonResponse && buttonResponseId) continue;
-
+                
                 // Check if this command's pattern matches the body
                 let patternMatches = false;
-
-                if (command.pattern) {
-                    if (typeof command.pattern === 'string') {
-                        patternMatches = body.trim() === command.pattern || body.startsWith(command.pattern);
-                    } else if (command.pattern instanceof RegExp) {
-                        patternMatches = command.pattern.test(body);
+                
+                if (cmd.pattern) {
+                    if (typeof cmd.pattern === 'string') {
+                        patternMatches = body.trim() === cmd.pattern || body.startsWith(cmd.pattern);
+                    } else if (cmd.pattern instanceof RegExp) {
+                        patternMatches = cmd.pattern.test(body);
                     }
                 }
-
+                
                 if (patternMatches) {
                     try {
-                        await command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
+                        command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
                         handled = true; // Mark as handled
                         console.log(`[HANDLER] Body handler matched: ${command.pattern}`);
                     } catch (e) {
                         console.error("[BODY HANDLER ERROR] " + e);
                     }
-                }
-            } else if (mek.q && command.on === "text") {
-                try {
-                    command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
-                } catch (e) {
-                    console.error("[TEXT HANDLER ERROR] " + e);
-                }
-            } else if (
-                (command.on === "image" || command.on === "photo") &&
-                mek.type === "imageMessage"
-            ) {
-                try {
-                    command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
-                } catch (e) {
-                    console.error("[IMAGE HANDLER ERROR] " + e);
-                }
-            } else if (
-                command.on === "sticker" &&
-                mek.type === "stickerMessage"
-            ) {
-                try {
-                    command.function(conn, mek, m, {from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
-                } catch (e) {
-                    console.error("[STICKER HANDLER ERROR] " + e);
                 }
             }
         }
@@ -1415,7 +1334,7 @@ app.get("/disconnect", async (req, res) => {
 
     const sanitizedNumber = number.replace(/[^0-9]/g, '');
     const socket = activeSockets.get(sanitizedNumber);
-
+    
     if (socket) {
         try {
             await socket.logout();
@@ -1425,7 +1344,7 @@ app.get("/disconnect", async (req, res) => {
             await fsExtra.remove(path.join(SESSION_BASE_PATH, `session_${sanitizedNumber}`));
             await deleteSessionFromGitHub(sanitizedNumber);
             await removeNumberFromStorage(sanitizedNumber);
-
+            
             res.status(200).send({
                 status: 'disconnected',
                 message: `Disconnected ${sanitizedNumber} and removed session from GitHub.`
@@ -1454,11 +1373,11 @@ app.listen(port, () => console.log(`[SERVER] Multi-Number WhatsApp Bot Server wi
 async function connectAllNumbersOnStartup() {
     try {
         let numbers = await loadNumbersFromGitHub();
-
+        
         if (numbers.length === 0 && fs.existsSync('./numbers.json')) {
             numbers = JSON.parse(fs.readFileSync('./numbers.json', 'utf8'));
         }
-
+        
         for (const number of numbers) {
             if (!activeSockets.has(number)) {
                 await connectToWAMulti(number);
