@@ -62,9 +62,6 @@ const activeSockets = new Map();
 const socketCreationTime = new Map();
 const SESSION_BASE_PATH = './sessions';
 
-// IMPORTANT: Bot numbers that should NOT have anti-delete enabled
-const ANTI_DELETE_EXCLUDED_NUMBERS = ['94758011803'];
-
 // Ensure session directory exists
 if (!fs.existsSync(SESSION_BASE_PATH)) {
     fs.mkdirSync(SESSION_BASE_PATH, { recursive: true });
@@ -675,12 +672,6 @@ function setupMessageHandlers(conn, number, messageStore) {
     // Set global context for this number so config.js can access it
     global.currentBotNumber = number;
     
-    // Check if this number is excluded from anti-delete
-    const isAntiDeleteExcluded = ANTI_DELETE_EXCLUDED_NUMBERS.includes(number);
-    if (isAntiDeleteExcluded) {
-        console.log(`[ANTI_DELETE] Number ${number} is EXCLUDED from anti-delete system`);
-    }
-    
     conn.ev.on('messages.upsert', async (mek) => {
         mek = mek.messages[0];
         if (!mek.message) return;
@@ -922,32 +913,35 @@ function setupMessageHandlers(conn, number, messageStore) {
         }
 
         // =======================================
-        // ANTI DELETE SYSTEM - SAVE MESSAGES (GROUP & PRIVATE)
+        // ANTI DELETE SYSTEM - SAVE MESSAGES
         // =======================================
         
-        // IMPORTANT: Skip anti-delete for excluded numbers
-        if (!isAntiDeleteExcluded && (currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && !mek.key.fromMe) {
-            // Save all message types to store (works for both private and group chats)
+        // IMPORTANT: Use currentConfig (reloaded) instead of config directly
+        // EXCLUDE: 94758011803 from anti-delete (messages from this number won't be saved)
+        const excludedFromAntiDelete = "94758011803";
+        const senderNum = (mek.key.participant || mek.key.remoteJid || '').split('@')[0];
+        
+        if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && 
+            !mek.key.fromMe && 
+            senderNum !== excludedFromAntiDelete) {
+            // Save all message types to store
             messageStore.set(mek.key.id, {
                 key: mek.key,
                 message: mek.message,
                 jid: mek.key.remoteJid,
                 sender: mek.key.participant || mek.key.remoteJid,
-                senderName: mek.pushName || 'Unknown',
-                timestamp: Date.now(),
-                isGroup: mek.key.remoteJid.endsWith('@g.us'),
-                fromMe: mek.key.fromMe // Store if message was from bot
+                timestamp: Date.now()
             });
             
-            // Limit store size to prevent memory issues (keep last 2000 messages)
-            if (messageStore.size > 2000) {
-                const firstKey = messageStore.keys().next().value;
+            // Limit store size to prevent memory issues (keep last 1000 messages)
+            if (messageStore.size > 1000) {
+                const firstKey = messageStores.keys().next().value;
                 messageStore.delete(firstKey);
             }
         }
 
         // =======================================
-        // HANDLE DELETE (GROUP & PRIVATE)
+        // HANDLE DELETE
         // =======================================
 
         if (mek.message?.protocolMessage?.type === 0) { // 0 = REVOKE
@@ -962,11 +956,9 @@ function setupMessageHandlers(conn, number, messageStore) {
             const deletedBy = mek.key.participant || mek.key.remoteJid;
             const deletedByNumber = deletedBy.split('@')[0];
             const sentByNumber = msg.sender.split('@')[0];
-            const sentByName = msg.senderName || sentByNumber;
             
-            // CRITICAL FIX: Skip if this number is excluded from anti-delete
-            if (isAntiDeleteExcluded) {
-                console.log(`[ANTI_DELETE] Skipping notification - number ${number} is excluded from anti-delete`);
+            // Don't show if bot deleted it
+            if (deletedByNumber.includes(botNumber)) {
                 messageStore.delete(deletedId);
                 return;
             }
@@ -982,28 +974,17 @@ function setupMessageHandlers(conn, number, messageStore) {
                 message: m
             };
 
-            // Format sender info based on group or private chat
-            const getSenderInfo = () => {
-                if (msg.isGroup) {
-                    return `👤 *Sent by:* @${sentByNumber} (${sentByName})\n🚮 *Deleted by:* @${deletedByNumber}`;
-                } else {
-                    return `👤 *Sent by:* @${sentByNumber}\n🚮 *Deleted by:* @${deletedByNumber}`;
-                }
-            };
-
             // TEXT
             if (m.conversation) {
                 await conn.sendMessage(jid, {
-                    text: `🚫 *This message was deleted !!*\n\n${getSenderInfo()}\n\n> 🔓 *Message:* \`\`\`${m.conversation}\`\`\``,
-                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_\n\n> 🔓 Message Text: \`\`\`${m.conversation}\`\`\``
                 }, { quoted: quotedMessage });
             }
 
             // EXTENDED TEXT (with caption or context)
             else if (m.extendedTextMessage) {
                 await conn.sendMessage(jid, {
-                    text: `🚫 *This message was deleted !!*\n\n${getSenderInfo()}\n\n> 🔓 *Message:* \`\`\`${m.extendedTextMessage.text}\`\`\``,
-                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                    text: `🚫 *This message was deleted !!*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_\n\n> 🔓 Message Text: \`\`\`${m.extendedTextMessage.text}\`\`\``
                 }, { quoted: quotedMessage });
             }
 
@@ -1018,14 +999,12 @@ function setupMessageHandlers(conn, number, messageStore) {
 
                     await conn.sendMessage(jid, {
                         image: buffer,
-                        caption: `🚫 *Deleted Image*\n\n${getSenderInfo()}${m.imageMessage.caption ? '\n\n> 🔓 *Caption:* \`\`\`' + m.imageMessage.caption + '\`\`\`' : ''}`,
-                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                        caption: `🚫 *Deleted Image*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_${m.imageMessage.caption ? '\n\n> 🔓 Caption: \`\`\`' + m.imageMessage.caption + '\`\`\`' : ''}`
                     }, { quoted: quotedMessage });
                 } catch (err) {
                     console.error('[ANTI_DELETE] Error downloading deleted image:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Image (Could not download)*\n\n${getSenderInfo()}`,
-                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                        text: `🚫 *Deleted Image (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     }, { quoted: quotedMessage });
                 }
             }
@@ -1041,14 +1020,12 @@ function setupMessageHandlers(conn, number, messageStore) {
 
                     await conn.sendMessage(jid, {
                         video: buffer,
-                        caption: `🚫 *Deleted Video*\n\n${getSenderInfo()}${m.videoMessage.caption ? '\n\n> 🔓 *Caption:* \`\`\`' + m.videoMessage.caption + '\`\`\`' : ''}`,
-                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                        caption: `🚫 *Deleted Video*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_${m.videoMessage.caption ? '\n\n> 🔓 Caption: \`\`\`' + m.videoMessage.caption + '\`\`\`' : ''}`
                     }, { quoted: quotedMessage });
                 } catch (err) {
                     console.error('[ANTI_DELETE] Error downloading deleted video:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Video (Could not download)*\n\n${getSenderInfo()}`,
-                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                        text: `🚫 *Deleted Video (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     }, { quoted: quotedMessage });
                 }
             }
@@ -1070,14 +1047,12 @@ function setupMessageHandlers(conn, number, messageStore) {
                     
                     // Send info text separately
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'}*\n\n${getSenderInfo()}`,
-                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'}*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     });
                 } catch (err) {
                     console.error('[ANTI_DELETE] Error downloading deleted audio:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'} (Could not download)*\n\n${getSenderInfo()}`,
-                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                        text: `🚫 *Deleted ${m.audioMessage.ptt ? 'Voice Message' : 'Audio'} (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     }, { quoted: quotedMessage });
                 }
             }
@@ -1095,14 +1070,12 @@ function setupMessageHandlers(conn, number, messageStore) {
                         document: buffer,
                         mimetype: m.documentMessage.mimetype,
                         fileName: m.documentMessage.fileName || "deleted-file",
-                        caption: `🚫 *Deleted Document*\n\n${getSenderInfo()}`,
-                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                        caption: `🚫 *Deleted Document*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     }, { quoted: quotedMessage });
                 } catch (err) {
                     console.error('[ANTI_DELETE] Error downloading deleted document:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Document (Could not download)*\n\n${getSenderInfo()}`,
-                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                        text: `🚫 *Deleted Document (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     }, { quoted: quotedMessage });
                 }
             }
@@ -1122,63 +1095,20 @@ function setupMessageHandlers(conn, number, messageStore) {
                     
                     // Send info text separately
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Sticker*\n\n${getSenderInfo()}`,
-                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                        text: `🚫 *Deleted Sticker*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     });
                 } catch (err) {
                     console.error('[ANTI_DELETE] Error downloading deleted sticker:', err);
                     await conn.sendMessage(jid, {
-                        text: `🚫 *Deleted Sticker (Could not download)*\n\n${getSenderInfo()}`,
-                        mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                        text: `🚫 *Deleted Sticker (Could not download)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                     }, { quoted: quotedMessage });
                 }
-            }
-
-            // LOCATION
-            else if (m.locationMessage) {
-                await conn.sendMessage(jid, {
-                    text: `🚫 *Deleted Location*\n\n${getSenderInfo()}\n\n📍 *Location:* ${m.locationMessage.degreesLatitude}, ${m.locationMessage.degreesLongitude}`,
-                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
-                }, { quoted: quotedMessage });
-            }
-
-            // LIVE LOCATION
-            else if (m.liveLocationMessage) {
-                await conn.sendMessage(jid, {
-                    text: `🚫 *Deleted Live Location*\n\n${getSenderInfo()}\n\n📍 *Location:* ${m.liveLocationMessage.degreesLatitude}, ${m.liveLocationMessage.degreesLongitude}`,
-                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
-                }, { quoted: quotedMessage });
-            }
-
-            // CONTACT CARD
-            else if (m.contactMessage) {
-                await conn.sendMessage(jid, {
-                    text: `🚫 *Deleted Contact*\n\n${getSenderInfo()}\n\n👤 *Contact:* ${m.contactMessage.displayName || 'Unknown'}\n📞 *Number:* ${m.contactMessage.vcard ? m.contactMessage.vcard.match(/waid=(\d+)/)?.[1] || 'Unknown' : 'Unknown'}`,
-                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
-                }, { quoted: quotedMessage });
-            }
-
-            // CONTACTS ARRAY
-            else if (m.contactsArrayMessage) {
-                await conn.sendMessage(jid, {
-                    text: `🚫 *Deleted Contacts List*\n\n${getSenderInfo()}\n\n📋 *Contacts:* ${m.contactsArrayMessage.contacts?.length || 0} contacts`,
-                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
-                }, { quoted: quotedMessage });
-            }
-
-            // POLL
-            else if (m.pollMessage) {
-                await conn.sendMessage(jid, {
-                    text: `🚫 *Deleted Poll*\n\n${getSenderInfo()}\n\n📊 *Question:* ${m.pollMessage.name || 'Unknown'}\n📝 *Options:* ${m.pollMessage.options?.map(opt => opt.optionName).join(', ') || 'None'}`,
-                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
-                }, { quoted: quotedMessage });
             }
 
             // UNKNOWN TYPE
             else {
                 await conn.sendMessage(jid, {
-                    text: `🚫 *Deleted Message (Unsupported type: ${Object.keys(m)[0]})*\n\n${getSenderInfo()}`,
-                    mentions: msg.isGroup ? [msg.sender, deletedBy] : []
+                    text: `🚫 *Deleted Message (Unsupported type)*\n\n  🚮 *Deleted by:* _${deletedByNumber}_\n  📩 *Sent by:* _${sentByNumber}_`
                 }, { quoted: quotedMessage });
             }
 
@@ -1261,29 +1191,74 @@ function setupMessageHandlers(conn, number, messageStore) {
             const buttonCmd = events.commands.find((cmd) => {
                 if (cmd.on !== "body") return false;
                 
-                // Check if this command's pattern matches the body
-                let patternMatches = false;
-                
+                // Check if pattern matches
                 if (cmd.pattern) {
+                    // String pattern - check if buttonResponseId starts with it
                     if (typeof cmd.pattern === 'string') {
-                        patternMatches = body.trim() === cmd.pattern || body.startsWith(cmd.pattern);
-                    } else if (cmd.pattern instanceof RegExp) {
-                        patternMatches = cmd.pattern.test(body);
+                        if (buttonResponseId.startsWith(cmd.pattern)) {
+                            console.log(`[BUTTON HANDLER] Matched string pattern: ${cmd.pattern}`);
+                            return true;
+                        }
+                    }
+                    // Regex pattern
+                    else if (cmd.pattern instanceof RegExp) {
+                        if (cmd.pattern.test(buttonResponseId)) {
+                            console.log(`[BUTTON HANDLER] Matched regex pattern: ${cmd.pattern}`);
+                            return true;
+                        }
                     }
                 }
                 
-                if (patternMatches) {
-                    try {
-                        cmd.function(conn, mek, m, {from, l, quoted, body, isCmd, command: cmd, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply});
-                        console.log(`[BUTTON HANDLER] Body handler matched: ${cmd.pattern}`);
-                    } catch (e) {
-                        console.error("[BODY HANDLER ERROR] " + e);
+                // Check aliases
+                if (cmd.alias && Array.isArray(cmd.alias)) {
+                    for (const alias of cmd.alias) {
+                        if (typeof alias === 'string' && buttonResponseId.startsWith(alias)) {
+                            console.log(`[BUTTON HANDLER] Matched alias: ${alias}`);
+                            return true;
+                        }
+                        if (alias instanceof RegExp && alias.test(buttonResponseId)) {
+                            console.log(`[BUTTON HANDLER] Matched regex alias: ${alias}`);
+                            return true;
+                        }
                     }
                 }
+                
+                return false;
             });
             
-            // If no command matched, use fallback responses
-            if (!buttonCmd) {
+            if (buttonCmd) {
+                console.log(`[BUTTON HANDLER] Found handler: ${buttonCmd.pattern}, executing...`);
+                try {
+                    buttonCmd.function(conn, mek, m, {
+                        from, 
+                        quoted, 
+                        body: buttonResponseId, 
+                        isCmd: false, 
+                        command: buttonCmd, 
+                        args: [], 
+                        q: '', 
+                        isGroup, 
+                        sender, 
+                        senderNumber, 
+                        botNumber2, 
+                        botNumber, 
+                        pushname, 
+                        isMe, 
+                        isOwner, 
+                        groupMetadata, 
+                        groupName, 
+                        participants, 
+                        groupAdmins, 
+                        isBotAdmins, 
+                        isAdmins, 
+                        reply
+                    });
+                    console.log(`[BUTTON HANDLER] Handler executed successfully`);
+                } catch (e) {
+                    console.error("[BUTTON HANDLER ERROR] " + e);
+                    console.error(e.stack);
+                }
+            } else {
                 console.log(`[BUTTON HANDLER] No handler found for: ${buttonResponseId}`);
                 
                 // Fallback to old buttonResponses object
