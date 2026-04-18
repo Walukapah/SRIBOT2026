@@ -956,21 +956,25 @@ function setupMessageHandlers(conn, number, messageStore) {
             const sentByNumber = msg.sender.split('@')[0];
             const sentByName = msg.senderName || sentByNumber;
             
-            // CRITICAL FIX: Check if the deleted message was originally sent by the bot
-            // We check both the stored fromMe flag and compare the sender with bot number
+            // CRITICAL FIX: Check if the original message was sent by the bot
+            // We check: 1) stored fromMe flag, 2) sender matches bot, 3) original key fromMe
             const isBotMessage = msg.fromMe === true || 
                                  msg.sender.includes(botNumber) || 
-                                 msg.key?.fromMe === true;
+                                 msg.key?.fromMe === true ||
+                                 mek.message.protocolMessage.key.fromMe === true; // The delete request is for a bot message
+            
+            // Log for debugging
+            console.log(`[ANTI_DELETE] Delete detected: fromMe=${msg.fromMe}, sender=${msg.sender}, protocolFromMe=${mek.message.protocolMessage.key.fromMe}, isBotMessage=${isBotMessage}`);
             
             if (isBotMessage) {
-                console.log(`[ANTI_DELETE] Skipping notification - bot's own message was deleted (fromMe: ${msg.fromMe}, sender: ${msg.sender})`);
+                console.log(`[ANTI_DELETE] Skipping - bot message was deleted`);
                 messageStore.delete(deletedId);
                 return;
             }
             
-            // Don't show if bot deleted it (this is the deleter)
+            // Don't show if bot deleted someone else's message
             if (deletedByNumber.includes(botNumber)) {
-                console.log(`[ANTI_DELETE] Skipping notification - bot deleted the message`);
+                console.log(`[ANTI_DELETE] Skipping - bot deleted the message`);
                 messageStore.delete(deletedId);
                 return;
             }
