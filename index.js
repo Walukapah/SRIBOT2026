@@ -917,6 +917,7 @@ function setupMessageHandlers(conn, number, messageStore) {
         // =======================================
         
         // IMPORTANT: Use currentConfig (reloaded) instead of config directly
+        // FIXED: Don't save bot's own messages to prevent self-delete notifications
         if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && !mek.key.fromMe) {
             // Save all message types to store (works for both private and group chats)
             messageStore.set(mek.key.id, {
@@ -926,7 +927,8 @@ function setupMessageHandlers(conn, number, messageStore) {
                 sender: mek.key.participant || mek.key.remoteJid,
                 senderName: mek.pushName || 'Unknown',
                 timestamp: Date.now(),
-                isGroup: mek.key.remoteJid.endsWith('@g.us')
+                isGroup: mek.key.remoteJid.endsWith('@g.us'),
+                fromMe: mek.key.fromMe // Store if message was from bot
             });
             
             // Limit store size to prevent memory issues (keep last 2000 messages)
@@ -954,7 +956,15 @@ function setupMessageHandlers(conn, number, messageStore) {
             const sentByNumber = msg.sender.split('@')[0];
             const sentByName = msg.senderName || sentByNumber;
             
-            // Don't show if bot deleted it
+            // CRITICAL FIX: Skip if the deleted message was sent by the bot itself
+            // This prevents anti-delete from triggering when bot's message is deleted
+            if (msg.fromMe === true) {
+                console.log(`[ANTI_DELETE] Skipping notification - bot's own message was deleted`);
+                messageStore.delete(deletedId);
+                return;
+            }
+            
+            // Don't show if bot deleted it (this is the deleter)
             if (deletedByNumber.includes(botNumber)) {
                 messageStore.delete(deletedId);
                 return;
