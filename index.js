@@ -917,13 +917,7 @@ function setupMessageHandlers(conn, number, messageStore) {
         // =======================================
         
         // IMPORTANT: Use currentConfig (reloaded) instead of config directly
-        // EXCLUDE: 94758011803 from anti-delete (messages from this number won't be saved)
-        const excludedFromAntiDelete = "94758011803";
-        const senderNum = (mek.key.participant || mek.key.remoteJid || '').split('@')[0];
-        
-        if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && 
-            !mek.key.fromMe && 
-            senderNum !== excludedFromAntiDelete) {
+        if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && !mek.key.fromMe) {
             // Save all message types to store
             messageStore.set(mek.key.id, {
                 key: mek.key,
@@ -935,7 +929,7 @@ function setupMessageHandlers(conn, number, messageStore) {
             
             // Limit store size to prevent memory issues (keep last 1000 messages)
             if (messageStore.size > 1000) {
-                const firstKey = messageStores.keys().next().value;
+                const firstKey = messageStore.keys().next().value;
                 messageStore.delete(firstKey);
             }
         }
@@ -954,11 +948,22 @@ function setupMessageHandlers(conn, number, messageStore) {
             const jid = msg.jid;
             const m = msg.message;
             const deletedBy = mek.key.participant || mek.key.remoteJid;
-            const deletedByNumber = deletedBy.split('@')[0];
+            const deletedByNumber = deletedBy ? deletedBy.split('@')[0].replace(/[^0-9]/g, '') : '';
             const sentByNumber = msg.sender.split('@')[0];
             
-            // Don't show if bot deleted it
-            if (deletedByNumber.includes(botNumber)) {
+            // EXCLUDE: 94758011803 from anti-delete notices
+            // When fromMe is true, botNumber is the deleter
+            const excludedFromAntiDelete = "94758011803";
+            const actualDeleterNumber = mek.key.fromMe ? botNumber : deletedByNumber;
+            
+            if (actualDeleterNumber === excludedFromAntiDelete) {
+                console.log(`[ANTI_DELETE] Skipping delete notice for excluded number: ${excludedFromAntiDelete}`);
+                messageStore.delete(deletedId);
+                return;
+            }
+            
+            // Don't show if bot deleted it (general case - already handled above)
+            if (actualDeleterNumber.includes(botNumber)) {
                 messageStore.delete(deletedId);
                 return;
             }
