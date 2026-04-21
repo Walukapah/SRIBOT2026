@@ -918,19 +918,40 @@ function setupMessageHandlers(conn, number, messageStore) {
         
         // IMPORTANT: Use currentConfig (reloaded) instead of config directly
         if ((currentConfig.ANTI_DELETE === "true" || currentConfig.ANTI_DELETE === true) && !mek.key.fromMe) {
-            // Save all message types to store
-            messageStore.set(mek.key.id, {
-                key: mek.key,
-                message: mek.message,
-                jid: mek.key.remoteJid,
-                sender: mek.key.participant || mek.key.remoteJid,
-                timestamp: Date.now()
-            });
             
-            // Limit store size to prevent memory issues (keep last 1000 messages)
-            if (messageStore.size > 1000) {
-                const firstKey = messageStore.keys().next().value;
-                messageStore.delete(firstKey);
+            // Get the participant/sender of this message
+            const msgParticipant = mek.key.participant || mek.key.remoteJid;
+            
+            // Check if this message is from the BOT itself (both @s.whatsapp.net and @lid)
+            // Bot can send messages via:
+            // 1. Normal: botnumber@s.whatsapp.net (fromMe = true)
+            // 2. LID mode: botnumber@lid (fromMe might be false in groups)
+            
+            const isBotMessage = mek.key.fromMe || 
+                                 msgParticipant === `${botNumber}@s.whatsapp.net` ||
+                                 msgParticipant === `${botNumber}@lid` ||
+                                 msgParticipant.includes(`${botNumber}@`);
+            
+            if (isBotMessage) {
+                console.log(`[ANTI_DELETE] Skipping bot's own message: ${msgParticipant}`);
+                // Don't save bot's messages to anti-delete store
+            } else {
+                // Save all message types to store (only for non-bot users)
+                messageStore.set(mek.key.id, {
+                    key: mek.key,
+                    message: mek.message,
+                    jid: mek.key.remoteJid,
+                    sender: mek.key.participant || mek.key.remoteJid,
+                    timestamp: Date.now()
+                });
+                
+                // Limit store size to prevent memory issues (keep last 1000 messages)
+                if (messageStore.size > 1000) {
+                    const firstKey = messageStore.keys().next().value;
+                    messageStore.delete(firstKey);
+                }
+                
+                console.log(`[ANTI_DELETE] Saved message from: ${msgParticipant}`);
             }
         }
 
@@ -948,22 +969,11 @@ function setupMessageHandlers(conn, number, messageStore) {
             const jid = msg.jid;
             const m = msg.message;
             const deletedBy = mek.key.participant || mek.key.remoteJid;
-            const deletedByNumber = deletedBy ? deletedBy.split('@')[0].replace(/[^0-9]/g, '') : '';
+            const deletedByNumber = deletedBy.split('@')[0];
             const sentByNumber = msg.sender.split('@')[0];
             
-            // EXCLUDE: 94758011803 from anti-delete notices
-            // When fromMe is true, botNumber is the deleter
-            const excludedFromAntiDelete = "94758011803";
-            const actualDeleterNumber = mek.key.fromMe ? botNumber : deletedByNumber;
-            
-            if (actualDeleterNumber === excludedFromAntiDelete) {
-                console.log(`[ANTI_DELETE] Skipping delete notice for excluded number: ${excludedFromAntiDelete}`);
-                messageStore.delete(deletedId);
-                return;
-            }
-            
-            // Don't show if bot deleted it (general case - already handled above)
-            if (actualDeleterNumber.includes(botNumber)) {
+            // Don't show if bot deleted it
+            if (deletedByNumber.includes(botNumber)) {
                 messageStore.delete(deletedId);
                 return;
             }
@@ -1196,7 +1206,7 @@ function setupMessageHandlers(conn, number, messageStore) {
             const buttonCmd = events.commands.find((cmd) => {
                 if (cmd.on !== "body") return false;
                 
-                // Check if pattern matches
+                // Check if this command's pattern matches the body
                 if (cmd.pattern) {
                     // String pattern - check if buttonResponseId starts with it
                     if (typeof cmd.pattern === 'string') {
