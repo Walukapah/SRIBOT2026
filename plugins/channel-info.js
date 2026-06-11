@@ -6,13 +6,12 @@ cmd({
     alias: ["channelinfo"],
     react: "ℹ️",
     desc: "Get WhatsApp channel information",
-    category: "owner",
+    category: "main",
     use: '.chrinfo <channel-link>',
     filename: __filename
 },
 async (conn, mek, m, { from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply }) => {
     try {
-        if (!isOwner) return reply("❌ Owner only command");
         if (!q) return reply(`Usage:\n${command} https://whatsapp.com/channel/1234567890`);
 
         const link = q.trim();
