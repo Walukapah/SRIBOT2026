@@ -52,7 +52,7 @@ function runSpeedTest() {
             return;
         }
 
-        exec(`python3 "${speedtestPath}" --simple --no-share`, { timeout: 60000 }, (error, stdout, stderr) => {
+        exec(`python3 "${speedtestPath}"`, { timeout: 60000 }, (error, stdout, stderr) => {
             if (error) {
                 console.error('[SPEEDTEST] Error:', error.message);
                 // Try with python if python3 fails
