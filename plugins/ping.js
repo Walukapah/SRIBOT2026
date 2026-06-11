@@ -1,7 +1,7 @@
 const os = require('os');
 const { exec } = require('child_process');
 const config = require('../config');
-const { cmd, commands } = require('../command');
+const {cmd, commands} = require('../command');
 
 function formatTime(seconds) {
     const days = Math.floor(seconds / (24 * 60 * 60));
@@ -98,19 +98,13 @@ cmd({
     use: '.ping',
     filename: __filename
 },
-async(conn, mek, m, {from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply}) => {
+async(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply}) => {
     try {
-        // 🛡️ FIX 1: Ignore messages from bot itself (prevent self-triggering)
-        if (mek.key.fromMe) {
-            console.log('[PING] Ignoring self-message to prevent logout');
-            return;
-        }
-
         const start = Date.now();
 
-        // Send initial loading message
-        const loadingMsg = await conn.sendMessage(from, { 
-            text: '📡 *Running Speed Test...*\n\n⏳ Please wait while testing...' 
+        // Send initial wait message
+        const waitMsg = await conn.sendMessage(from, { 
+            text: '📡 *Running Speed Test...*\n\n⏳ Please wait while testing download & upload speeds...' 
         }, { quoted: mek });
 
         const end = Date.now();
@@ -119,8 +113,7 @@ async(conn, mek, m, {from, quoted, body, isCmd, command, args, q, isGroup, sende
         const uptimeInSeconds = process.uptime();
         const uptimeFormatted = formatTime(uptimeInSeconds);
 
-        // 🛡️ FIX 2: Run speed test WITHOUT animation loop (prevents session invalidation)
-        // Animation loop causes rapid message edits which triggers WhatsApp security
+        // Run internet speed test
         const speedResults = await runSpeedTest();
 
         const botInfo = `
@@ -138,17 +131,11 @@ async(conn, mek, m, {from, quoted, body, isCmd, command, args, q, isGroup, sende
 ┃
 ┗━━━━━━━━━━━━━━━━━━━┛`.trim();
 
-        // 🛡️ FIX 3: Delete loading message and send final result as NEW message
-        // Instead of editing (which causes issues with self-messages)
-        try {
-            await conn.sendMessage(from, { delete: loadingMsg.key });
-        } catch (e) {
-            console.log('[PING] Could not delete loading message');
-        }
-
-        await conn.sendMessage(from, {
-            text: botInfo
-        }, { quoted: mek });
+        // Edit the wait message with the result (instead of deleting and sending new)
+        await conn.sendMessage(from, { 
+            edit: waitMsg.key, 
+            text: botInfo 
+        });
 
     } catch (error) {
         console.error('Error in ping command:', error);
