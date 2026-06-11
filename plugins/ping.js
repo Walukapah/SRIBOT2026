@@ -1,4 +1,5 @@
 const os = require('os');
+const { exec } = require('child_process');
 const config = require('../config');
 const {cmd, commands} = require('../command');
 
@@ -19,11 +20,54 @@ function formatTime(seconds) {
     return time.trim();
 }
 
+// Function to run speed test using Python speedtest-cli
+function runSpeedTest() {
+    return new Promise((resolve, reject) => {
+        // Use the speedtest.py file in the project
+        const speedtestPath = require('path').join(__dirname, '..', 'speedtest.py');
+
+        exec(`python3 "${speedtestPath}" --simple --no-share`, { timeout: 60000 }, (error, stdout, stderr) => {
+            if (error) {
+                console.error('[SPEEDTEST] Error:', error.message);
+                // Try with python if python3 fails
+                exec(`python "${speedtestPath}" --simple --no-share`, { timeout: 60000 }, (error2, stdout2, stderr2) => {
+                    if (error2) {
+                        console.error('[SPEEDTEST] Python fallback error:', error2.message);
+                        resolve({ download: 'N/A', upload: 'N/A', ping: 'N/A' });
+                    } else {
+                        resolve(parseSpeedTestOutput(stdout2));
+                    }
+                });
+            } else {
+                resolve(parseSpeedTestOutput(stdout));
+            }
+        });
+    });
+}
+
+// Parse speedtest-cli simple output
+function parseSpeedTestOutput(output) {
+    const lines = output.trim().split('\n');
+    let result = { download: 'N/A', upload: 'N/A', ping: 'N/A' };
+
+    for (const line of lines) {
+        if (line.startsWith('Ping:')) {
+            result.ping = line.replace('Ping:', '').trim();
+        } else if (line.startsWith('Download:')) {
+            result.download = line.replace('Download:', '').trim();
+        } else if (line.startsWith('Upload:')) {
+            result.upload = line.replace('Upload:', '').trim();
+        }
+    }
+
+    return result;
+}
+
 cmd({
     pattern: "ping",
     react: "🤖",
     alias: ["speed", "test"],
-    desc: "Check bot's ping speed",
+    desc: "Check bot's ping speed and internet speed",
     category: "main",
     use: '.ping',
     filename: __filename
@@ -31,21 +75,39 @@ cmd({
 async(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply}) => {
     try {
         const start = Date.now();
-        await conn.sendMessage(from, { text: 'Pong!', ai: true });
+
+        // Send initial message
+        const loadingMsg = await conn.sendMessage(from, { 
+            text: '📡 *Running Speed Test...*\n\n⏳ Please wait while testing download & upload speeds...' 
+        }, { quoted: mek });
+
         const end = Date.now();
-        const ping = Math.round((end - start) / 2);
+        const botPing = Math.round((end - start) / 2);
 
         const uptimeInSeconds = process.uptime();
         const uptimeFormatted = formatTime(uptimeInSeconds);
 
+        // Run internet speed test
+        const speedResults = await runSpeedTest();
+
         const botInfo = `
 ┏━━〔 🗿 *${config.BOT_NAME}* 〕━━┓
-┃ 🚀 Ping     : ${ping} ms
-┃ ⏱️ Uptime   : ${uptimeFormatted}
-┃ 🔖 Version  : v${config.VERSION}
+┃
+┃ 🤖 *Bot Status*
+┃ 🚀 Bot Ping     : ${botPing} ms
+┃ ⏱️ Uptime        : ${uptimeFormatted}
+┃ 🔖 Version      : v${config.VERSION}
+┃
+┃ 📡 *Internet Speed*
+┃ 🌐 Network Ping  : ${speedResults.ping}
+┃ ⬇️ Download     : ${speedResults.download}
+┃ ⬆️ Upload       : ${speedResults.upload}
+┃
 ┗━━━━━━━━━━━━━━━━━━━┛`.trim();
 
-        await conn.sendMessage(from, { text: botInfo, quoted: mek });
+        // Delete loading message and send result
+        await conn.sendMessage(from, { delete: loadingMsg.key });
+        await conn.sendMessage(from, { text: botInfo }, { quoted: mek });
 
     } catch (error) {
         console.error('Error in ping command:', error);
