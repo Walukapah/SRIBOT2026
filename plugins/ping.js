@@ -89,6 +89,22 @@ function parseSpeedTestOutput(output) {
     return result;
 }
 
+// Text animation frames
+const loadingFrames = [
+    '📡 *Running Speed Test...*\n\n⏳ Testing download speed',
+    '📡 *Running Speed Test...*\n\n⏳ Testing download speed.',
+    '📡 *Running Speed Test...*\n\n⏳ Testing download speed..',
+    '📡 *Running Speed Test...*\n\n⏳ Testing download speed...',
+    '📡 *Running Speed Test...*\n\n⏳ Testing upload speed',
+    '📡 *Running Speed Test...*\n\n⏳ Testing upload speed.',
+    '📡 *Running Speed Test...*\n\n⏳ Testing upload speed..',
+    '📡 *Running Speed Test...*\n\n⏳ Testing upload speed...',
+    '📡 *Running Speed Test...*\n\n⏳ Calculating results',
+    '📡 *Running Speed Test...*\n\n⏳ Calculating results.',
+    '📡 *Running Speed Test...*\n\n⏳ Calculating results..',
+    '📡 *Running Speed Test...*\n\n⏳ Calculating results...'
+];
+
 cmd({
     pattern: "ping",
     react: "🤖",
@@ -102,9 +118,9 @@ async(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender
     try {
         const start = Date.now();
 
-        // Send initial message
+        // Send initial loading message
         const loadingMsg = await conn.sendMessage(from, { 
-            text: '📡 *Running Speed Test...*\n\n⏳ Please wait while testing download & upload speeds...' 
+            text: '📡 *Running Speed Test...*\n\n⏳ Please wait while testing...' 
         }, { quoted: mek });
 
         const end = Date.now();
@@ -113,8 +129,25 @@ async(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender
         const uptimeInSeconds = process.uptime();
         const uptimeFormatted = formatTime(uptimeInSeconds);
 
+        // Start animation loop
+        let frameIndex = 0;
+        const animationInterval = setInterval(async () => {
+            try {
+                await conn.sendMessage(from, {
+                    edit: loadingMsg.key,
+                    text: loadingFrames[frameIndex]
+                });
+                frameIndex = (frameIndex + 1) % loadingFrames.length;
+            } catch (e) {
+                // Ignore edit errors
+            }
+        }, 800);
+
         // Run internet speed test
         const speedResults = await runSpeedTest();
+
+        // Stop animation
+        clearInterval(animationInterval);
 
         const botInfo = `
 ┏━━〔 🗿 *${config.BOT_NAME}* 〕━━┓
@@ -131,9 +164,11 @@ async(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender
 ┃
 ┗━━━━━━━━━━━━━━━━━━━┛`.trim();
 
-        // Delete loading message and send result
-        await conn.sendMessage(from, { delete: loadingMsg.key });
-        await conn.sendMessage(from, { text: botInfo }, { quoted: mek });
+        // Edit the same message with final result
+        await conn.sendMessage(from, {
+            edit: loadingMsg.key,
+            text: botInfo
+        });
 
     } catch (error) {
         console.error('Error in ping command:', error);
