@@ -23,8 +23,34 @@ function formatTime(seconds) {
 // Function to run speed test using Python speedtest-cli
 function runSpeedTest() {
     return new Promise((resolve, reject) => {
-        // Use the speedtest.py file in the project
-        const speedtestPath = require('path').join(__dirname, '..', 'speedtest.py');
+        const path = require('path');
+
+        // Try multiple possible paths for speedtest.py
+        const possiblePaths = [
+            path.join(__dirname, '..', 'lib', 'speedtest.py'),      // lib folder
+            path.join(__dirname, '..', 'speedtest.py'),              // root folder
+            path.join(process.cwd(), 'lib', 'speedtest.py'),         // cwd lib
+            path.join(process.cwd(), 'speedtest.py'),                  // cwd root
+            './lib/speedtest.py',
+            './speedtest.py'
+        ];
+
+        let speedtestPath = null;
+        const fs = require('fs');
+
+        for (const p of possiblePaths) {
+            if (fs.existsSync(p)) {
+                speedtestPath = p;
+                console.log(`[SPEEDTEST] Found speedtest.py at: ${p}`);
+                break;
+            }
+        }
+
+        if (!speedtestPath) {
+            console.error('[SPEEDTEST] speedtest.py not found in any location!');
+            resolve({ download: 'N/A', upload: 'N/A', ping: 'N/A' });
+            return;
+        }
 
         exec(`python3 "${speedtestPath}" --simple --no-share`, { timeout: 60000 }, (error, stdout, stderr) => {
             if (error) {
