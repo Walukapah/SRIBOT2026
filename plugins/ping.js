@@ -1,7 +1,7 @@
 const os = require('os');
 const { exec } = require('child_process');
 const config = require('../config');
-const {cmd, commands} = require('../command');
+const { cmd, commands } = require('../command');
 
 function formatTime(seconds) {
     const days = Math.floor(seconds / (24 * 60 * 60));
@@ -89,22 +89,6 @@ function parseSpeedTestOutput(output) {
     return result;
 }
 
-// Text animation frames
-const loadingFrames = [
-    '📡 *Running Speed Test...*\n\n⏳ Testing download speed',
-    '📡 *Running Speed Test...*\n\n⏳ Testing download speed.',
-    '📡 *Running Speed Test...*\n\n⏳ Testing download speed..',
-    '📡 *Running Speed Test...*\n\n⏳ Testing download speed...',
-    '📡 *Running Speed Test...*\n\n⏳ Testing upload speed',
-    '📡 *Running Speed Test...*\n\n⏳ Testing upload speed.',
-    '📡 *Running Speed Test...*\n\n⏳ Testing upload speed..',
-    '📡 *Running Speed Test...*\n\n⏳ Testing upload speed...',
-    '📡 *Running Speed Test...*\n\n⏳ Calculating results',
-    '📡 *Running Speed Test...*\n\n⏳ Calculating results.',
-    '📡 *Running Speed Test...*\n\n⏳ Calculating results..',
-    '📡 *Running Speed Test...*\n\n⏳ Calculating results...'
-];
-
 cmd({
     pattern: "ping",
     react: "🤖",
@@ -114,8 +98,14 @@ cmd({
     use: '.ping',
     filename: __filename
 },
-async(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply}) => {
+async(conn, mek, m, {from, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply}) => {
     try {
+        // 🛡️ FIX 1: Ignore messages from bot itself (prevent self-triggering)
+        if (mek.key.fromMe) {
+            console.log('[PING] Ignoring self-message to prevent logout');
+            return;
+        }
+
         const start = Date.now();
 
         // Send initial loading message
@@ -129,25 +119,9 @@ async(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender
         const uptimeInSeconds = process.uptime();
         const uptimeFormatted = formatTime(uptimeInSeconds);
 
-        // Start animation loop
-        let frameIndex = 0;
-        const animationInterval = setInterval(async () => {
-            try {
-                await conn.sendMessage(from, {
-                    edit: loadingMsg.key,
-                    text: loadingFrames[frameIndex]
-                });
-                frameIndex = (frameIndex + 1) % loadingFrames.length;
-            } catch (e) {
-                // Ignore edit errors
-            }
-        }, 800);
-
-        // Run internet speed test
+        // 🛡️ FIX 2: Run speed test WITHOUT animation loop (prevents session invalidation)
+        // Animation loop causes rapid message edits which triggers WhatsApp security
         const speedResults = await runSpeedTest();
-
-        // Stop animation
-        clearInterval(animationInterval);
 
         const botInfo = `
 ┏━━〔 🗿 *${config.BOT_NAME}* 〕━━┓
@@ -164,11 +138,17 @@ async(conn, mek, m,{from, quoted, body, isCmd, command, args, q, isGroup, sender
 ┃
 ┗━━━━━━━━━━━━━━━━━━━┛`.trim();
 
-        // Edit the same message with final result
+        // 🛡️ FIX 3: Delete loading message and send final result as NEW message
+        // Instead of editing (which causes issues with self-messages)
+        try {
+            await conn.sendMessage(from, { delete: loadingMsg.key });
+        } catch (e) {
+            console.log('[PING] Could not delete loading message');
+        }
+
         await conn.sendMessage(from, {
-            edit: loadingMsg.key,
             text: botInfo
-        });
+        }, { quoted: mek });
 
     } catch (error) {
         console.error('Error in ping command:', error);
