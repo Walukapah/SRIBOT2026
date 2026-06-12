@@ -768,23 +768,27 @@ function setupMessageHandlers(conn, number, messageStore) {
 
         // Status updates handling (using dynamic config)
         if (mek.key && mek.key.remoteJid === 'status@broadcast') {
-            // Get status uploader's JID (participant is the actual user who uploaded status)
-            const statusUploader = mek.key.participant || mek.key.remoteJid;
-
+            // SKIP if this is a reaction message (to avoid infinite loop)
+            if (mek.message?.reactionMessage) {
+                return;
+            }
+            // SKIP if this is from me (bot's own reaction/status)
+            if (mek.key.fromMe) {
+                return;
+            }
             // Auto read Status
             if (currentConfig.AUTO_READ_STATUS === "true") {
                 try {
                     await conn.readMessages([mek.key]);
-                    console.log(green + `[STATUS] Status from ${statusUploader} marked as read for ${number}.` + reset);
+                    console.log(green + `[STATUS] Status from ${mek.key.participant || mek.key.remoteJid} marked as read for ${number}.` + reset);
                 } catch (error) {
                     console.error(red + `[STATUS] Error reading status for ${number}:`, error + reset);
                 }
             }
 
-            // Auto react to Status - FIXED: React to the status message itself
+            // Auto react to Status
             if (currentConfig.AUTO_REACT_STATUS === "true") {
                 try {
-                    // Create a reaction key pointing to the status message
                     const reactionKey = {
                         remoteJid: 'status@broadcast',
                         id: mek.key.id,
@@ -795,7 +799,7 @@ function setupMessageHandlers(conn, number, messageStore) {
                         statusUploader,
                         { react: { text: currentConfig.AUTO_REACT_STATUS_EMOJI, key: reactionKey } }
                     );
-                    console.log(green + `[STATUS] Reacted to status from ${statusUploader} for ${number} with ${currentConfig.AUTO_REACT_STATUS_EMOJI}` + reset);
+                    console.log(green + `[STATUS] Reacted to status from ${mek.key.participant || mek.key.remoteJid} for ${number}` + reset);
                 } catch (error) {
                     console.error(red + `[STATUS] Error reacting to status for ${number}:`, error + reset);
                 }
