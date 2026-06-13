@@ -750,19 +750,29 @@ function setupMessageHandlers(conn, number, messageStore) {
                 ? [currentConfig.OWNER_NUMBER] 
                 : [];
         
-        // Auto mark as read (using dynamic config) - FIXED: removed sendReadReceipt
+        // ============================================
+        // FIXED: AUTO READ MESSAGE SYSTEM
+        // ============================================
         if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true") {
             try {
                 const from = mek.key.remoteJid;
                 const id = mek.key.id;
                 const participant = mek.key.participant || from;
 
-                // Only use readMessages (sendReadReceipt is not available in new Baileys)
-                await conn.readMessages([{ remoteJid: from, id: id, participant: participant }]);
-
-                console.log(blue + `[READ] Marked message from ${from} as read for ${number}.` + reset);
+                // Skip if message is from bot itself
+                if (mek.key.fromMe) {
+                    console.log(blue + `[READ] Skipping own message for ${number}.` + reset);
+                } else {
+                    // Mark message as read using readMessages
+                    await conn.readMessages([{ 
+                        remoteJid: from, 
+                        id: id, 
+                        participant: participant 
+                    }]);
+                    console.log(green + `[READ] ✅ Marked message from ${from} as read for ${number}.` + reset);
+                }
             } catch (error) {
-                console.error(red + `[READ] Error marking message as read for ${number}:`, error + reset);
+                console.error(red + `[READ] ❌ Error marking message as read for ${number}:`, error + reset);
             }
         }
 
