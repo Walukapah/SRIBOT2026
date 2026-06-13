@@ -750,43 +750,36 @@ function setupMessageHandlers(conn, number, messageStore) {
                 ? [currentConfig.OWNER_NUMBER] 
                 : [];
         
-        // ============================================
-        // FIXED: AUTO READ MESSAGE SYSTEM - BLUE TICKS + LID FIX
-        // ============================================
+        // Auto mark as read (using dynamic config) - FIXED: Works for both private and group chats
         if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true") {
             try {
                 const from = mek.key.remoteJid;
                 const id = mek.key.id;
                 const participant = mek.key.participant || from;
 
-                // FIX: Use remoteJidAlt for LID chats to get proper @s.whatsapp.net JID
-                // LID format: 132658738782342@lid -> need to convert to 94753670175@s.whatsapp.net
-                const isLid = from.endsWith('@lid');
-                const actualJid = isLid && mek.key.remoteJidAlt ? mek.key.remoteJidAlt : from;
+                // Check if it's a group chat or private chat
+                const isGroup = from.endsWith('@g.us');
 
-                // For private chats with LID, use the actual phone number JID
-                const isPrivate = !from.endsWith('@g.us');
-                const readJid = (isLid && isPrivate) ? actualJid : from;
-
-                // Skip if message is from bot itself
-                if (mek.key.fromMe) {
-                    console.log(blue + `[READ] Skipping own message for ${number}.` + reset);
+                // For private chats, we need to mark the message as read differently
+                if (!isGroup) {
+                    // Private chat: mark as read using the correct format
+                    await conn.readMessages([{ 
+                        remoteJid: from, 
+                        id: id, 
+                        participant: from  // In private chat, participant is the same as remoteJid
+                    }]);
                 } else {
-                    // Build proper message key for readMessages
-                    // Use actual JID (not LID) for private chats to ensure proper read receipts
-                    const readKey = {
-                        remoteJid: readJid,
-                        id: id,
-                        participant: participant
-                    };
-
-                    // Mark message as read - this sends read receipt to server
-                    await conn.readMessages([readKey]);
-
-                    console.log(green + `[READ] ✅ Blue ticks sent to sender for ${readJid} (original: ${from})` + reset);
+                    // Group chat: mark as read with participant
+                    await conn.readMessages([{ 
+                        remoteJid: from, 
+                        id: id, 
+                        participant: participant 
+                    }]);
                 }
+
+                console.log(blue + `[READ] ✅ Marked message from ${from} as read for ${number}.` + reset);
             } catch (error) {
-                console.error(red + `[READ] ❌ Error marking message as read for ${number}:`, error + reset);
+                console.error(red + `[READ] Error marking message as read for ${number}:`, error + reset);
             }
         }
 
