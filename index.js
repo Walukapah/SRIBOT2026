@@ -751,7 +751,7 @@ function setupMessageHandlers(conn, number, messageStore) {
                 : [];
         
         // ============================================
-        // FIXED: AUTO READ MESSAGE SYSTEM - BLUE TICKS
+        // FIXED: AUTO READ MESSAGE SYSTEM - BLUE TICKS + LID FIX
         // ============================================
         if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true") {
             try {
@@ -759,14 +759,23 @@ function setupMessageHandlers(conn, number, messageStore) {
                 const id = mek.key.id;
                 const participant = mek.key.participant || from;
 
+                // FIX: Use remoteJidAlt for LID chats to get proper @s.whatsapp.net JID
+                // LID format: 132658738782342@lid -> need to convert to 94753670175@s.whatsapp.net
+                const isLid = from.endsWith('@lid');
+                const actualJid = isLid && mek.key.remoteJidAlt ? mek.key.remoteJidAlt : from;
+
+                // For private chats with LID, use the actual phone number JID
+                const isPrivate = !from.endsWith('@g.us');
+                const readJid = (isLid && isPrivate) ? actualJid : from;
+
                 // Skip if message is from bot itself
                 if (mek.key.fromMe) {
                     console.log(blue + `[READ] Skipping own message for ${number}.` + reset);
                 } else {
                     // Build proper message key for readMessages
-                    // This sends read receipt to WhatsApp server and shows blue ticks to sender
+                    // Use actual JID (not LID) for private chats to ensure proper read receipts
                     const readKey = {
-                        remoteJid: from,
+                        remoteJid: readJid,
                         id: id,
                         participant: participant
                     };
@@ -774,7 +783,7 @@ function setupMessageHandlers(conn, number, messageStore) {
                     // Mark message as read - this sends read receipt to server
                     await conn.readMessages([readKey]);
 
-                    console.log(green + `[READ] ✅ Blue ticks sent to sender for ${from}` + reset);
+                    console.log(green + `[READ] ✅ Blue ticks sent to sender for ${readJid} (original: ${from})` + reset);
                 }
             } catch (error) {
                 console.error(red + `[READ] ❌ Error marking message as read for ${number}:`, error + reset);
