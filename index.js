@@ -768,9 +768,8 @@ function setupMessageHandlers(conn, number, messageStore) {
 
         // Status updates handling (using dynamic config)
         if (mek.key && mek.key.remoteJid === 'status@broadcast') {
-            // Use remoteJidAlt if available (real phone number), otherwise fall back to participant (LID)
-            const statusUploader = mek.key.remoteJidAlt || mek.key.participant || mek.key.remoteJid;
-            const statusParticipant = mek.key.participant || mek.key.remoteJidAlt || mek.key.remoteJid;
+            // Get status uploader's JID
+            const statusUploader = mek.key.participant || mek.key.remoteJid;
 
             // SKIP if this is a reaction message (to avoid infinite loop)
             if (mek.message?.reactionMessage) {
@@ -791,23 +790,24 @@ function setupMessageHandlers(conn, number, messageStore) {
                 }
             }
 
-            // Auto react to Status - FIXED: Use real phone number JID
+            // Auto react to Status - FIXED: Use statusJidList option
             if (currentConfig.AUTO_REACT_STATUS === "true") {
                 try {
-                    const reactionKey = {
-                        remoteJid: 'status@broadcast',
-                        id: mek.key.id,
-                        participant: statusParticipant
-                    };
-
-                    // Send reaction to the real JID (not LID)
-                    const targetJid = mek.key.remoteJidAlt || statusParticipant;
-
+                    // The CORRECT way to react to status in Baileys
+                    // Send to status@broadcast with statusJidList containing the participant
                     await conn.sendMessage(
-                        targetJid,
-                        { react: { text: currentConfig.AUTO_REACT_STATUS_EMOJI, key: reactionKey } }
+                        'status@broadcast',
+                        { 
+                            react: { 
+                                text: currentConfig.AUTO_REACT_STATUS_EMOJI, 
+                                key: mek.key 
+                            } 
+                        },
+                        { 
+                            statusJidList: [statusUploader] 
+                        }
                     );
-                    console.log(green + `[STATUS] Reacted to status from ${statusUploader} (target: ${targetJid}) for ${number} with ${currentConfig.AUTO_REACT_STATUS_EMOJI}` + reset);
+                    console.log(green + `[STATUS] Reacted to status from ${statusUploader} for ${number} with ${currentConfig.AUTO_REACT_STATUS_EMOJI}` + reset);
                 } catch (error) {
                     console.error(red + `[STATUS] Error reacting to status for ${number}:`, error + reset);
                 }
