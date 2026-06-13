@@ -763,25 +763,18 @@ function setupMessageHandlers(conn, number, messageStore) {
                 if (mek.key.fromMe) {
                     console.log(blue + `[READ] Skipping own message for ${number}.` + reset);
                 } else {
-                    const isGroup = from.endsWith('@g.us');
+                    // Build proper message key for readMessages
+                    // This sends read receipt to WhatsApp server and shows blue ticks to sender
+                    const readKey = {
+                        remoteJid: from,
+                        id: id,
+                        participant: participant
+                    };
 
-                    // Method 1: Mark as read locally
-                    await conn.readMessages([{ 
-                        remoteJid: from, 
-                        id: id, 
-                        participant: participant 
-                    }]);
+                    // Mark message as read - this sends read receipt to server
+                    await conn.readMessages([readKey]);
 
-                    // Method 2: Send read receipt to sender for BLUE TICKS
-                    // This notifies the sender that their message was read
-                    try {
-                        const receiptJid = isGroup ? from : (participant || from);
-                        await conn.sendReceipt(receiptJid, participant, [id], 'read');
-                        console.log(green + `[READ] ✅ Blue ticks sent to sender for ${from}` + reset);
-                    } catch (receiptError) {
-                        // Fallback: readMessages alone should still work
-                        console.log(yellow + `[READ] ⚠️ Receipt send failed, using readMessages only: ${receiptError.message}` + reset);
-                    }
+                    console.log(green + `[READ] ✅ Blue ticks sent to sender for ${from}` + reset);
                 }
             } catch (error) {
                 console.error(red + `[READ] ❌ Error marking message as read for ${number}:`, error + reset);
