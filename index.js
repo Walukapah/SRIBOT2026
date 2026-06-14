@@ -751,37 +751,18 @@ function setupMessageHandlers(conn, number, messageStore) {
                 : [];
         
         // Auto mark as read (using dynamic config) - FIXED: Works for both private and group chats
-        if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true") {
-            try {
-                const from = mek.key.remoteJid;
-                const id = mek.key.id;
-                const participant = mek.key.participant || from;
-
-                // Check if it's a group chat or private chat
-                const isGroup = from.endsWith('@g.us');
-
-                // For private chats, we need to mark the message as read differently
-                if (!isGroup) {
-                    // Private chat: mark as read using the correct format
-                    await conn.readMessages([{ 
-                        remoteJid: from, 
-                        id: id, 
-                        participant: from  // In private chat, participant is the same as remoteJid
-                    }]);
-                } else {
-                    // Group chat: mark as read with participant
-                    await conn.readMessages([{ 
-                        remoteJid: from, 
-                        id: id, 
-                        participant: participant 
-                    }]);
-                }
-
-                console.log(blue + `[READ] ✅ Marked message from ${from} as read for ${number}.` + reset);
-            } catch (error) {
-                console.error(red + `[READ] Error marking message as read for ${number}:`, error + reset);
-            }
+        // Auto Read Messages
+if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true") {
+    try {
+        if (!mek.key.fromMe) {
+            await conn.readMessages([mek.key]);
         }
+
+        console.log(`[READ] ✅ ${mek.key.remoteJid} marked as read`);
+    } catch (err) {
+        console.error("[READ] Error:", err);
+    }
+}
 
         // Status updates handling (using dynamic config)
         if (mek.key && mek.key.remoteJid === 'status@broadcast') {
