@@ -227,7 +227,7 @@ cmd({
         await reply(`⏳ *Fetching YouTube video info...*\n\n🔄 Please wait...`);
 
         // Use the new API endpoint
-        const apiUrl = `https://sri-api.vercel.app/download/youtubedl2?url=${encodeURIComponent(youtubeUrl)}`;
+        const apiUrl = `https://sri-api.vercel.app/download/youtubedl?url=${encodeURIComponent(youtubeUrl)}`;
         
         console.log(`[YOUTUBE] Fetching: ${apiUrl}`);
         
