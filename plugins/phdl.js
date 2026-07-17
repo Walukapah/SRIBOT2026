@@ -81,7 +81,7 @@ async function handlePHDownload(conn, mek, from, reply, downloadData) {
         return true;
     } catch (error) {
         console.error('[PHDL DOWNLOAD ERROR]', error);
-        await reply(`❌ *Failed to download!*\\n\\n${error.message}`);
+        await reply(`❌ *Failed to download!*\n\n${error.message}`);
         return false;
     }
 }
@@ -211,11 +211,11 @@ cmd({
         const messageType = config.MESSAGE_TYPE || 'button';
 
         if (!q || (!q.includes('pornhub.com') && !q.includes('phncdn.com'))) {
-            return reply(`❌ *Please provide a valid PH URL!*\\n\\n*Usage:* ${prefix}phdl <video-url>`);
+            return reply(`❌ *Please provide a valid PH URL!*\n\n*Usage:* ${prefix}phdl <video-url>`);
         }
 
         const videoUrl = q.trim();
-        await reply(`⏳ *Fetching video info...*\\n\\n🔄 Please wait...`);
+        await reply(`⏳ *Fetching video info...*\n\n🔄 Please wait...`);
 
         const apiUrl = `${API_BASE}?url=${encodeURIComponent(videoUrl)}`;
         
@@ -226,7 +226,7 @@ cmd({
             response = await fetchJson(apiUrl);
         } catch (apiError) {
             console.error('[PHDL] API Error:', apiError);
-            return reply(`❌ *API Error!*\\n\\nFailed to fetch video information.`);
+            return reply(`❌ *API Error!*\n\nFailed to fetch video information.`);
         }
 
         // Parse response
@@ -238,7 +238,7 @@ cmd({
         const result = response.result;
         
         if (!result.success) {
-            return reply(`❌ *API returned error!*\\n\\nStatus: ${result.status || 'Unknown'}`);
+            return reply(`❌ *API returned error!*\n\nStatus: ${result.status || 'Unknown'}`);
         }
 
         // Extract data
@@ -267,13 +267,13 @@ cmd({
         console.log(`[PHDL] Available qualities: ${qualities.join(', ')}`);
 
         // Build info text
-        let infoText = `🔞 *PH Video Info*\\n\\n`;
-        infoText += `📌 *Title:* ${title}\\n`;
-        if (description) infoText += `📝 *Description:* ${description.substring(0, 100)}${description.length > 100 ? '...' : ''}\\n`;
-        infoText += `⏱️ *Duration:* ${duration}\\n`;
-        infoText += `📅 *Upload Date:* ${uploadDate}\\n`;
-        infoText += `👁️ *Views:* ${views}\\n`;
-        infoText += `❤️ *Likes:* ${likes}\\n\\n`;
+        let infoText = `🔞 *PH Video Info*\n\n`;
+        infoText += `📌 *Title:* ${title}\n`;
+        if (description) infoText += `📝 *Description:* ${description.substring(0, 100)}${description.length > 100 ? '...' : ''}\n`;
+        infoText += `⏱️ *Duration:* ${duration}\n`;
+        infoText += `📅 *Upload Date:* ${uploadDate}\n`;
+        infoText += `👁️ *Views:* ${views}\n`;
+        infoText += `❤️ *Likes:* ${likes}\n\n`;
         infoText += `📊 *Available Qualities:* ${qualities.length}`;
 
         // Store download data
@@ -288,16 +288,16 @@ cmd({
 
         if (messageType === 'text') {
             // TEXT MODE
-            let optionsText = `\\n\\n📥 *Reply with your choice:*\\n`;
+            let optionsText = `\n\n📥 *Reply with your choice:*\n`;
             
             qualities.forEach((quality, index) => {
                 const label = QUALITY_LABELS[quality] || quality;
-                optionsText += `\\n${index + 1}. *${label}*\\n`;
-                optionsText += `   🎬 *${index + 1}* - Video\\n`;
-                optionsText += `   📄 *${index + 1}d* - Document\\n`;
+                optionsText += `\n${index + 1}. *${label}*\n`;
+                optionsText += `   🎬 *${index + 1}* - Video\n`;
+                optionsText += `   📄 *${index + 1}d* - Document\n`;
             });
             
-            optionsText += `\\n⏳ *Active for 3 minutes*\\n`;
+            optionsText += `\n⏳ *Active for 3 minutes*\n`;
             optionsText += `${config.FOOTER || "POWERED BY SRI-BOT 🇱🇰"}`;
 
             const sendOptions = thumbnail 
@@ -372,7 +372,7 @@ cmd({
 
     } catch (error) {
         console.error("[PHDL] Error:", error);
-        reply(`❌ *Error!*\\n\\n${error.message}`);
+        reply(`❌ *Error!*\n\n${error.message}`);
     }
 });
 
