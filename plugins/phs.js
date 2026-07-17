@@ -19,7 +19,7 @@ function formatViews(views) {
     return views;
 }
 
-// Helper function to send video info
+// Helper function to send video info (image + caption together)
 async function sendVideoInfo(conn, mek, from, reply, videoData, index, searchId) {
     try {
         const { title, url, thumb, channel, views, duration, vkey } = videoData;
@@ -30,18 +30,21 @@ async function sendVideoInfo(conn, mek, from, reply, videoData, index, searchId)
             `⏱️ *Duration:* ${formatDuration(duration)}\n\n` +
             `🔗 *Link:* ${url}`;
 
-        // Send thumbnail as image message (no link preview)
+        // Send image with caption together (no link preview)
         if (thumb && thumb.startsWith('http')) {
             try {
                 await conn.sendMessage(from, {
-                    image: { url: thumb }
+                    image: { url: thumb },
+                    caption: infoText
                 }, { quoted: mek });
+                return true;
             } catch (imgError) {
                 console.log(`[PHS] Thumbnail send failed: ${imgError.message}`);
+                // Fall through to text-only
             }
         }
 
-        // Send info text separately (no link preview)
+        // Send text-only if no thumbnail or thumbnail failed
         await conn.sendMessage(from, {
             text: infoText
         }, { quoted: mek });
