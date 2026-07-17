@@ -57,12 +57,12 @@ async function processDownload(url, maxAttempts = 5) {
 // Helper: Handle PH download
 async function handlePHDownload(conn, mek, from, reply, downloadData) {
     try {
-        await reply(`⏳ *Processing ${downloadData.quality} download...*\\n\\n⏱️ This may take a moment...`);
+        await reply(`⏳ *Processing ${downloadData.quality} download...*\n\n⏱️ This may take a moment...`);
         
         const fileUrl = downloadData.url;
         console.log(`[PHDL] Sending file: ${fileUrl.substring(0, 60)}...`);
         
-        const caption = `🎬 *PH Download (${downloadData.quality})*\\n\\n⏱️ *Duration:* ${downloadData.duration}\\n👁️ *Views:* ${downloadData.views}\\n❤️ *Likes:* ${downloadData.likes}\\n\\n📥 Downloaded via ${config.BOT_NAME}`;
+        const caption = `🎬 *PH Download (${downloadData.quality})*\n\n⏱️ *Duration:* ${downloadData.duration}\n👁️ *Views:* ${downloadData.views}\n❤️ *Likes:* ${downloadData.likes}\n\n📥 Downloaded via ${config.BOT_NAME}`;
         
         if (downloadData.mode === 'document') {
             await conn.sendMessage(from, {
