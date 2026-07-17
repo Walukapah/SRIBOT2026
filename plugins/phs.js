@@ -1,7 +1,7 @@
 const { cmd } = require('../command');
 const { Button } = require('../lib/button');
 const config = require('../config');
-const { fetchJson } = require('../lib/function');
+const { fetchJson } = require('../lib/functions');
 
 // Store PHS search results globally
 if (!global.phsSearches) global.phsSearches = new Map();
