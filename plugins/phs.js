@@ -1,7 +1,7 @@
 const { cmd } = require('../command');
 const { Button } = require('../lib/button');
 const config = require('../config');
-const { fetchJson, getBuffer } = require('../lib/functions');
+const { fetchJson } = require('../lib/function');
 
 // Store PHS search results globally
 if (!global.phsSearches) global.phsSearches = new Map();
@@ -19,21 +19,7 @@ function formatViews(views) {
     return views;
 }
 
-// Check if URL is valid and accessible
-async function isValidImageUrl(url) {
-    if (!url || typeof url !== 'string') return false;
-    if (!url.startsWith('http')) return false;
-    try {
-        const axios = require('axios');
-        const response = await axios.head(url, { timeout: 5000 });
-        const contentType = response.headers['content-type'] || '';
-        return contentType.startsWith('image/');
-    } catch (e) {
-        return false;
-    }
-}
-
-// Helper function to send video info with download
+// Helper function to send video info
 async function sendVideoInfo(conn, mek, from, reply, videoData, index, searchId) {
     try {
         const { title, url, thumb, channel, views, duration, vkey } = videoData;
@@ -44,45 +30,20 @@ async function sendVideoInfo(conn, mek, from, reply, videoData, index, searchId)
             `⏱️ *Duration:* ${formatDuration(duration)}\n\n` +
             `🔗 *Link:* ${url}`;
 
-        // Check if thumbnail is valid
-        const thumbValid = await isValidImageUrl(thumb);
-
-        if (thumbValid) {
+        // Send thumbnail as image message (no link preview)
+        if (thumb && thumb.startsWith('http')) {
             try {
-                // Send thumbnail with info
                 await conn.sendMessage(from, {
-                    image: { url: thumb },
-                    caption: infoText,
-                    contextInfo: {
-                        externalAdReply: {
-                            title: title,
-                            body: `${channel} • ${views} views`,
-                            thumbnailUrl: thumb,
-                            sourceUrl: url,
-                            mediaType: 1,
-                            renderLargerThumbnail: true
-                        }
-                    }
+                    image: { url: thumb }
                 }, { quoted: mek });
-                return true;
             } catch (imgError) {
-                console.log(`[PHS] Thumbnail send failed, sending text only: ${imgError.message}`);
-                // Fall through to text-only send
+                console.log(`[PHS] Thumbnail send failed: ${imgError.message}`);
             }
         }
 
-        // Send text-only message if thumbnail fails or invalid
+        // Send info text separately (no link preview)
         await conn.sendMessage(from, {
-            text: infoText,
-            contextInfo: {
-                externalAdReply: {
-                    title: title,
-                    body: `${channel} • ${views} views`,
-                    sourceUrl: url,
-                    mediaType: 1,
-                    renderLargerThumbnail: false
-                }
-            }
+            text: infoText
         }, { quoted: mek });
 
         return true;
@@ -211,24 +172,8 @@ cmd({
             infoText += `⏳ *Active for 3 minutes*\n`;
             infoText += `${config.FOOTER || "POWERED BY SRI-BOT 🇱🇰"}`;
 
-            // Use first video's thumbnail as main image, or send text only
-            const mainThumb = displayResults[0]?.thumb || displayResults[0]?.preview || '';
-            const thumbValid = await isValidImageUrl(mainThumb);
-
-            let sentMsg;
-            if (thumbValid) {
-                try {
-                    sentMsg = await conn.sendMessage(from, { 
-                        image: { url: mainThumb },
-                        caption: infoText
-                    }, { quoted: mek });
-                } catch (imgError) {
-                    console.log(`[PHS] Main thumbnail failed, sending text only: ${imgError.message}`);
-                    sentMsg = await conn.sendMessage(from, { text: infoText }, { quoted: mek });
-                }
-            } else {
-                sentMsg = await conn.sendMessage(from, { text: infoText }, { quoted: mek });
-            }
+            // Send text only (no image, no link preview)
+            const sentMsg = await conn.sendMessage(from, { text: infoText }, { quoted: mek });
 
             const messageID = sentMsg.key.id;
             
@@ -252,18 +197,6 @@ cmd({
         } else {
             // BUTTON MODE
             const btn = new Button();
-            
-            // Set thumbnail image from first result (only if valid)
-            const mainThumb = displayResults[0]?.thumb || displayResults[0]?.preview || '';
-            const thumbValid = await isValidImageUrl(mainThumb);
-            
-            if (thumbValid) {
-                try {
-                    await btn.setImage(mainThumb);
-                } catch (e) {
-                    console.log(`[PHS] Button image set failed, continuing without image: ${e.message}`);
-                }
-            }
             
             btn.setTitle("🔍 PHS Search Results");
             btn.setBody(infoText + `Click on a video below to get details!`);
