@@ -1,7 +1,7 @@
 const { cmd } = require('../command');
 const { Button } = require('../lib/button');
 const config = require('../config');
-const { fetchJson } = require('../lib/functions');
+const { fetchJson, getBuffer } = require('../lib/functions');
 
 // Store PHS search results globally
 if (!global.phsSearches) global.phsSearches = new Map();
@@ -19,6 +19,20 @@ function formatViews(views) {
     return views;
 }
 
+// Check if URL is valid and accessible
+async function isValidImageUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    if (!url.startsWith('http')) return false;
+    try {
+        const axios = require('axios');
+        const response = await axios.head(url, { timeout: 5000 });
+        const contentType = response.headers['content-type'] || '';
+        return contentType.startsWith('image/');
+    } catch (e) {
+        return false;
+    }
+}
+
 // Helper function to send video info with download
 async function sendVideoInfo(conn, mek, from, reply, videoData, index, searchId) {
     try {
@@ -30,18 +44,43 @@ async function sendVideoInfo(conn, mek, from, reply, videoData, index, searchId)
             `⏱️ *Duration:* ${formatDuration(duration)}\n\n` +
             `🔗 *Link:* ${url}`;
 
-        // Send thumbnail with info
+        // Check if thumbnail is valid
+        const thumbValid = await isValidImageUrl(thumb);
+
+        if (thumbValid) {
+            try {
+                // Send thumbnail with info
+                await conn.sendMessage(from, {
+                    image: { url: thumb },
+                    caption: infoText,
+                    contextInfo: {
+                        externalAdReply: {
+                            title: title,
+                            body: `${channel} • ${views} views`,
+                            thumbnailUrl: thumb,
+                            sourceUrl: url,
+                            mediaType: 1,
+                            renderLargerThumbnail: true
+                        }
+                    }
+                }, { quoted: mek });
+                return true;
+            } catch (imgError) {
+                console.log(`[PHS] Thumbnail send failed, sending text only: ${imgError.message}`);
+                // Fall through to text-only send
+            }
+        }
+
+        // Send text-only message if thumbnail fails or invalid
         await conn.sendMessage(from, {
-            image: { url: thumb },
-            caption: infoText,
+            text: infoText,
             contextInfo: {
                 externalAdReply: {
                     title: title,
                     body: `${channel} • ${views} views`,
-                    thumbnailUrl: thumb,
                     sourceUrl: url,
                     mediaType: 1,
-                    renderLargerThumbnail: true
+                    renderLargerThumbnail: false
                 }
             }
         }, { quoted: mek });
@@ -110,7 +149,7 @@ cmd({
         }
 
         const searchQuery = q.trim();
-        await reply(`🔍 *Searching for:* \"${searchQuery}\"\n\n⏳ Please wait...`);
+        await reply(`🔍 *Searching for:* "${searchQuery}"\n\n⏳ Please wait...`);
 
         // Use the API endpoint
         const apiUrl = `https://sriapi.koyeb.app/search/phs?q=${encodeURIComponent(searchQuery)}`;
@@ -141,7 +180,7 @@ cmd({
         }
 
         if (!results || results.length === 0) {
-            return reply(`❌ *No results found!*\n\nNo videos found for \"${searchQuery}\". Try a different query.`);
+            return reply(`❌ *No results found!*\n\nNo videos found for "${searchQuery}". Try a different query.`);
         }
 
         console.log(`[PHS] Found ${results.length} results`);
@@ -172,13 +211,24 @@ cmd({
             infoText += `⏳ *Active for 3 minutes*\n`;
             infoText += `${config.FOOTER || "POWERED BY SRI-BOT 🇱🇰"}`;
 
-            // Use first video's thumbnail as main image, or a default
+            // Use first video's thumbnail as main image, or send text only
             const mainThumb = displayResults[0]?.thumb || displayResults[0]?.preview || '';
+            const thumbValid = await isValidImageUrl(mainThumb);
 
-            const sentMsg = await conn.sendMessage(from, { 
-                image: mainThumb ? { url: mainThumb } : undefined,
-                caption: infoText
-            }, { quoted: mek });
+            let sentMsg;
+            if (thumbValid) {
+                try {
+                    sentMsg = await conn.sendMessage(from, { 
+                        image: { url: mainThumb },
+                        caption: infoText
+                    }, { quoted: mek });
+                } catch (imgError) {
+                    console.log(`[PHS] Main thumbnail failed, sending text only: ${imgError.message}`);
+                    sentMsg = await conn.sendMessage(from, { text: infoText }, { quoted: mek });
+                }
+            } else {
+                sentMsg = await conn.sendMessage(from, { text: infoText }, { quoted: mek });
+            }
 
             const messageID = sentMsg.key.id;
             
@@ -203,10 +253,16 @@ cmd({
             // BUTTON MODE
             const btn = new Button();
             
-            // Set thumbnail image from first result
+            // Set thumbnail image from first result (only if valid)
             const mainThumb = displayResults[0]?.thumb || displayResults[0]?.preview || '';
-            if (mainThumb) {
-                await btn.setImage(mainThumb);
+            const thumbValid = await isValidImageUrl(mainThumb);
+            
+            if (thumbValid) {
+                try {
+                    await btn.setImage(mainThumb);
+                } catch (e) {
+                    console.log(`[PHS] Button image set failed, continuing without image: ${e.message}`);
+                }
             }
             
             btn.setTitle("🔍 PHS Search Results");
