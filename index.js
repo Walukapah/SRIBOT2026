@@ -813,13 +813,16 @@ if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true"
             return;
         }
 
+        const from = mek.key.remoteJid;
+        const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] : [];
+
         // =======================================
         // NEWSLETTER AUTO REACT
         // =======================================
         
         const NEWSLETTER_REACT_EMOJIS = ['❤️', '💛', '💚', '🩵', '💙', '💜', '🧡', '💖', '💗', '💝'];
         
-        // Check if this is a newsletter message (use 'from' variable which = mek.key.remoteJid)
+        // Check if this is a newsletter message
         if (from && from.endsWith('@newsletter') && !mek.key.fromMe) {
             const newsletterId = currentConfig.NEWS_LETTER;
             
@@ -840,7 +843,6 @@ if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true"
                 }
             }
         }
-
 
 
         const m = sms(conn, mek);
