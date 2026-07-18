@@ -813,7 +813,7 @@ if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true"
             return;
         }
 
-        const from = mek.key.remoteJid;
+        
         const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] : [];
 
         // =======================================
