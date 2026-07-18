@@ -1,6 +1,26 @@
 const { cmd } = require('../command');
 const axios = require('axios');
-const { getBuffer } = require('../lib/functions');
+
+// Custom getBuffer with timeout and better error handling
+const getBufferWithTimeout = async (url, timeout = 15000) => {
+    try {
+        const res = await axios({
+            method: 'get',
+            url,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'
+            },
+            responseType: 'arraybuffer',
+            timeout: timeout,
+            maxRedirects: 5
+        });
+        return res.data;
+    } catch (e) {
+        console.log(`[GOOGLEIMAGE] getBuffer failed for ${url}:`, e.message);
+        return null;
+    }
+};
 
 cmd({
     pattern: "googlei",
@@ -33,7 +53,12 @@ async (conn, mek, m, { from, reply, args, q }) => {
         for (let i = 0; i < maxImages; i++) {
             try {
                 const img = images[i];
-                const buffer = await getBuffer(img.image_url);
+                const buffer = await getBufferWithTimeout(img.image_url, 15000);
+                
+                if (!buffer) {
+                    console.log(`[GOOGLEIMAGE] Skipping image ${i + 1} - failed to download`);
+                    continue;
+                }
                 
                 albumItems.push({
                     image: buffer,
@@ -48,10 +73,24 @@ async (conn, mek, m, { from, reply, args, q }) => {
             return reply("❌ Failed to load any images. Please try again.");
         }
 
-        // Send as album
-        await conn.sendMessage(from, {
-            album: albumItems
-        }, { quoted: mek });
+        // Send as album - try different methods
+        try {
+            // Method 1: Album format
+            await conn.sendMessage(from, {
+                album: albumItems
+            }, { quoted: mek });
+        } catch (albumError) {
+            console.log("[GOOGLEIMAGE] Album send failed, trying individual sends:", albumError.message);
+            
+            // Method 2: Send images one by one
+            for (const item of albumItems) {
+                await conn.sendMessage(from, {
+                    image: item.image,
+                    caption: item.caption
+                }, { quoted: mek });
+                await new Promise(r => setTimeout(r, 500)); // Small delay between sends
+            }
+        }
 
     } catch (error) {
         console.error("[GOOGLEIMAGE] Error:", error);
