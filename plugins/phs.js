@@ -7,6 +7,8 @@ const { fetchJson } = require('../lib/functions');
 if (!global.phsSearches) global.phsSearches = new Map();
 if (!global.phsReplyHandlers) global.phsReplyHandlers = new Map();
 
+const CATBOX_IMAGE = 'https://files.catbox.moe/zojk99.png';
+
 // Helper function to format duration
 function formatDuration(duration) {
     if (!duration) return 'Unknown';
@@ -40,11 +42,22 @@ async function sendVideoInfo(conn, mek, from, reply, videoData, index, searchId)
                 return true;
             } catch (imgError) {
                 console.log(`[PHS] Thumbnail send failed: ${imgError.message}`);
-                // Fall through to text-only
+                // Fall through to catbox image
             }
         }
 
-        // Send text-only if no thumbnail or thumbnail failed
+        // Send catbox image with caption if thumbnail failed or not available
+        try {
+            await conn.sendMessage(from, {
+                image: { url: CATBOX_IMAGE },
+                caption: infoText
+            }, { quoted: mek });
+            return true;
+        } catch (catboxError) {
+            console.log(`[PHS] Catbox image failed: ${catboxError.message}`);
+        }
+
+        // Send text-only if all images failed
         await conn.sendMessage(from, {
             text: infoText
         }, { quoted: mek });
@@ -175,31 +188,62 @@ cmd({
             infoText += `⏳ *Active for 3 minutes*\n`;
             infoText += `${config.FOOTER || "POWERED BY SRI-BOT 🇱🇰"}`;
 
-            // Send text only (no image, no link preview)
-            const sentMsg = await conn.sendMessage(from, { text: infoText }, { quoted: mek });
+            // Send catbox image with text caption
+            try {
+                const sentMsg = await conn.sendMessage(from, {
+                    image: { url: CATBOX_IMAGE },
+                    caption: infoText
+                }, { quoted: mek });
 
-            const messageID = sentMsg.key.id;
-            
-            // Store search results for reply handler
-            global.phsSearches.set(messageID, displayResults);
+                const messageID = sentMsg.key.id;
+                
+                // Store search results for reply handler
+                global.phsSearches.set(messageID, displayResults);
 
-            const replyHandler = createReplyHandler(conn, messageID, from, mek, displayResults);
-            global.phsReplyHandlers.set(messageID, replyHandler);
-            conn.ev.on('messages.upsert', replyHandler);
+                const replyHandler = createReplyHandler(conn, messageID, from, mek, displayResults);
+                global.phsReplyHandlers.set(messageID, replyHandler);
+                conn.ev.on('messages.upsert', replyHandler);
 
-            // Timeout - remove handler after 3 minutes
-            setTimeout(() => {
-                if (global.phsReplyHandlers.has(messageID)) {
-                    const handler = global.phsReplyHandlers.get(messageID);
-                    conn.ev.off('messages.upsert', handler);
-                    global.phsReplyHandlers.delete(messageID);
-                    global.phsSearches.delete(messageID);
-                }
-            }, 180000);
+                // Timeout - remove handler after 3 minutes
+                setTimeout(() => {
+                    if (global.phsReplyHandlers.has(messageID)) {
+                        const handler = global.phsReplyHandlers.get(messageID);
+                        conn.ev.off('messages.upsert', handler);
+                        global.phsReplyHandlers.delete(messageID);
+                        global.phsSearches.delete(messageID);
+                    }
+                }, 180000);
+            } catch (imgError) {
+                console.log(`[PHS] Catbox image failed in text mode: ${imgError.message}`);
+                // Fallback to text only
+                const sentMsg = await conn.sendMessage(from, { text: infoText }, { quoted: mek });
+                
+                const messageID = sentMsg.key.id;
+                global.phsSearches.set(messageID, displayResults);
+                const replyHandler = createReplyHandler(conn, messageID, from, mek, displayResults);
+                global.phsReplyHandlers.set(messageID, replyHandler);
+                conn.ev.on('messages.upsert', replyHandler);
+                
+                setTimeout(() => {
+                    if (global.phsReplyHandlers.has(messageID)) {
+                        const handler = global.phsReplyHandlers.get(messageID);
+                        conn.ev.off('messages.upsert', handler);
+                        global.phsReplyHandlers.delete(messageID);
+                        global.phsSearches.delete(messageID);
+                    }
+                }, 180000);
+            }
 
         } else {
             // BUTTON MODE
             const btn = new Button();
+            
+            // Set catbox image for button message
+            try {
+                await btn.setImage(CATBOX_IMAGE);
+            } catch (e) {
+                console.log(`[PHS] Catbox image set failed for button: ${e.message}`);
+            }
             
             btn.setTitle("🔍 PHS Search Results");
             btn.setBody(infoText + `Click on a video below to get details!`);
