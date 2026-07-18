@@ -814,8 +814,6 @@ if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true"
         }
 
         
-        const quoted = type == 'extendedTextMessage' && mek.message.extendedTextMessage.contextInfo != null ? mek.message.extendedTextMessage.contextInfo.quotedMessage || [] : [];
-
         // =======================================
         // NEWSLETTER AUTO REACT
         // =======================================
