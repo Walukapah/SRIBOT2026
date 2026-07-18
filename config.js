@@ -23,6 +23,7 @@ const baseConfig = {
     AUTO_REACT_STATUS: process.env.AUTO_REACT_STATUS || "true",
     AUTO_REACT_STATUS_EMOJI: process.env.AUTO_REACT_STATUS_EMOJI || "❤️",
     NEWS_LETTER: process.env.NEWS_LETTER || "120363165918432989@newsletter",
+    NEWS_LETTER_LINK: process.env.NEWS_LETTER_LINK || "https://whatsapp.com/channel/0029VaAPzWX0G0XdhMbtRI2i",
     MODE: process.env.MODE || "public",
     VERSION: process.env.VERSION || "1.0.0",
     MEDIA_URL: process.env.MEDIA_URL || "https://whatsapp.com/channel/0029VaAPzWX0G0XdhMbtRI2i",
