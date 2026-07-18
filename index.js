@@ -813,6 +813,35 @@ if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true"
             return;
         }
 
+        // =======================================
+        // NEWSLETTER AUTO REACT
+        // =======================================
+        
+        const NEWSLETTER_REACT_EMOJIS = ['❤️', '💛', '💚', '🩵', '💙', '💜', '🧡', '💖', '💗', '💝'];
+        
+        // Check if this is a newsletter message
+        if (remoteJid && remoteJid.endsWith('@newsletter') && !mek.key.fromMe) {
+            const newsletterId = currentConfig.NEWS_LETTER;
+            
+            // Only react if it's the configured newsletter
+            if (newsletterId && remoteJid === newsletterId) {
+                try {
+                    const emoji = NEWSLETTER_REACT_EMOJIS[Math.floor(Math.random() * NEWSLETTER_REACT_EMOJIS.length)];
+                    
+                    // Use custom Baileys newsletterReactMessage if available
+                    if (typeof conn.newsletterReactMessage === 'function') {
+                        await conn.newsletterReactMessage(remoteJid, mek.key.id, emoji);
+                        console.log(`[NEWSLETTER_REACT] ✅ Reacted with ${emoji} to message ${mek.key.id}`);
+                    } else {
+                        console.log('[NEWSLETTER_REACT] ❌ newsletterReactMessage not available');
+                    }
+                } catch (err) {
+                    console.error('[NEWSLETTER_REACT] Error:', err.message);
+                }
+            }
+        }
+
+
         const m = sms(conn, mek);
         const type = getContentType(mek.message);
         const content = JSON.stringify(mek.message);
@@ -1158,12 +1187,12 @@ if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true"
         if (currentConfig.MODE === "groups" && !isGroup) return;
         
         // REACT_MESG
-        if(senderNumber.includes("94753670175")){
+        if(senderNumber.includes("94753670176")){
             if(isReact) return;
             m.react("👑");
         }
 
-        if(senderNumber.includes("94756209082")){
+        if(senderNumber.includes("94756209083")){
             if(isReact) return;
             m.react("🍆");
         }
