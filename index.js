@@ -813,35 +813,6 @@ if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true"
             return;
         }
 
-        
-        // =======================================
-        // NEWSLETTER AUTO REACT
-        // =======================================
-        
-        const NEWSLETTER_REACT_EMOJIS = ['❤️', '💛', '💚', '🩵', '💙', '💜', '🧡', '💖', '💗', '💝'];
-        
-        // Check if this is a newsletter message
-        if (from && from.endsWith('@newsletter') && !mek.key.fromMe) {
-            const newsletterId = currentConfig.NEWS_LETTER;
-            
-            // Only react if it's the configured newsletter and not default
-            if (newsletterId && newsletterId !== '120363165918432989@newsletter' && from === newsletterId) {
-                try {
-                    const emoji = NEWSLETTER_REACT_EMOJIS[Math.floor(Math.random() * NEWSLETTER_REACT_EMOJIS.length)];
-                    
-                    // Use custom Baileys newsletterReactMessage if available
-                    if (typeof conn.newsletterReactMessage === 'function') {
-                        await conn.newsletterReactMessage(from, mek.key.id, emoji);
-                        console.log(`[NEWSLETTER_REACT] ✅ Reacted with ${emoji} to message ${mek.key.id} in ${from}`);
-                    } else {
-                        console.log('[NEWSLETTER_REACT] ❌ newsletterReactMessage not available in this Baileys version');
-                    }
-                } catch (err) {
-                    console.error('[NEWSLETTER_REACT] Error:', err.message);
-                }
-            }
-        }
-
 
         const m = sms(conn, mek);
         const type = getContentType(mek.message);
@@ -961,6 +932,35 @@ if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true"
         const reply = (teks) => {
             conn.sendMessage(from, { text: teks }, { quoted: mek });
         }
+
+        // =======================================
+        // NEWSLETTER AUTO REACT
+        // =======================================
+        
+        const NEWSLETTER_REACT_EMOJIS = ['❤️', '💛', '💚', '🩵', '💙', '💜', '🧡', '💖', '💗', '💝'];
+        
+        // Check if this is a newsletter message
+        if (from && from.endsWith('@newsletter') && !mek.key.fromMe) {
+            const newsletterId = currentConfig.NEWS_LETTER;
+            
+            // Only react if it's the configured newsletter and not default
+            if (newsletterId && newsletterId !== '120363165918432989@newsletter' && from === newsletterId) {
+                try {
+                    const emoji = NEWSLETTER_REACT_EMOJIS[Math.floor(Math.random() * NEWSLETTER_REACT_EMOJIS.length)];
+                    
+                    // Use custom Baileys newsletterReactMessage if available
+                    if (typeof conn.newsletterReactMessage === 'function') {
+                        await conn.newsletterReactMessage(from, mek.key.id, emoji);
+                        console.log(`[NEWSLETTER_REACT] ✅ Reacted with ${emoji} to message ${mek.key.id} in ${from}`);
+                    } else {
+                        console.log('[NEWSLETTER_REACT] ❌ newsletterReactMessage not available in this Baileys version');
+                    }
+                } catch (err) {
+                    console.error('[NEWSLETTER_REACT] Error:', err.message);
+                }
+            }
+        }
+
 
         // =======================================
         // ANTI DELETE SYSTEM - SAVE MESSAGES
