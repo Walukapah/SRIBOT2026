@@ -939,23 +939,14 @@ if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true"
         
         const NEWSLETTER_REACT_EMOJIS = ['❤️', '💛', '💚', '🩵', '💙', '💜', '🧡', '💖', '💗', '💝'];
         
-        // DEBUG: Log newsletter check
-        console.log(`[NEWSLETTER_DEBUG] from=${from}, endsWithNewsletter=${from?.endsWith('@newsletter')}, fromMe=${mek.key.fromMe}`);
-        
         // Check if this is a newsletter message
         if (from && from.endsWith('@newsletter') && !mek.key.fromMe) {
             const newsletterId = currentConfig.NEWS_LETTER;
             
-            // DEBUG: Log config check
-            console.log(`[NEWSLETTER_DEBUG] newsletterId=${newsletterId}, match=${from === newsletterId}, isDefault=${newsletterId === '120363165918432989@newsletter'}`);
-            
-            // Only react if it's the configured newsletter and not default
-            if (newsletterId && newsletterId !== '120363165918432989@newsletter' && from === newsletterId) {
+            // React to configured newsletter (removed default check)
+            if (newsletterId && from === newsletterId) {
                 try {
                     const emoji = NEWSLETTER_REACT_EMOJIS[Math.floor(Math.random() * NEWSLETTER_REACT_EMOJIS.length)];
-                    
-                    // DEBUG: Log before react
-                    console.log(`[NEWSLETTER_DEBUG] Attempting react with ${emoji}, method available=${typeof conn.newsletterReactMessage === 'function'}`);
                     
                     // Use custom Baileys newsletterReactMessage if available
                     if (typeof conn.newsletterReactMessage === 'function') {
@@ -967,8 +958,6 @@ if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true"
                 } catch (err) {
                     console.error('[NEWSLETTER_REACT] Error:', err.message);
                 }
-            } else {
-                console.log(`[NEWSLETTER_DEBUG] Skipped: config mismatch or default ID`);
             }
         }
 
