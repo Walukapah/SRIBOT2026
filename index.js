@@ -948,22 +948,33 @@ if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true"
                 try {
                     const emoji = NEWSLETTER_REACT_EMOJIS[Math.floor(Math.random() * NEWSLETTER_REACT_EMOJIS.length)];
                     
-                    console.log(`[NEWSLETTER_DEBUG] Attempting react: jid=${from}, msgId=${mek.key.id}, emoji=${emoji}`);
+                    console.log(`[NEWSLETTER_DEBUG] Attempting react: from=${from}, msgId=${mek.key.id}, emoji=${emoji}`);
                     
                     // Use custom Baileys newsletterReactMessage
                     if (typeof conn.newsletterReactMessage === 'function') {
-                        const result = await conn.newsletterReactMessage(from, mek.key.id, emoji);
-                        console.log(`[NEWSLETTER_REACT] ✅ Reacted with ${emoji} to message ${mek.key.id} in ${from}`);
-                        console.log(`[NEWSLETTER_DEBUG] Result:`, result);
+                        // Try to get metadata first (like channel-react plugin)
+                        let targetJid = from;
+                        try {
+                            const channelMeta = await conn.newsletterMetadata("jid", from);
+                            if (channelMeta && channelMeta.id) {
+                                targetJid = channelMeta.id;
+                                console.log(`[NEWSLETTER_DEBUG] Got metadata id: ${targetJid}`);
+                            }
+                        } catch (metaErr) {
+                            console.log(`[NEWSLETTER_DEBUG] metadata error: ${metaErr.message}, using from=${from}`);
+                        }
+                        
+                        await conn.newsletterReactMessage(targetJid, mek.key.id, emoji);
+                        console.log(`[NEWSLETTER_REACT] ✅ Reacted with ${emoji} to message ${mek.key.id} in ${targetJid}`);
                     } else {
                         console.log('[NEWSLETTER_REACT] ❌ newsletterReactMessage not available');
                     }
                 } catch (err) {
                     console.error('[NEWSLETTER_REACT] Error:', err.message);
-                    console.error('[NEWSLETTER_REACT] Stack:', err.stack);
                 }
             }
         }
+
 
 
 
