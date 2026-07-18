@@ -1,9 +1,8 @@
 // ============================================
 // NEWSLETTER AUTO REACT PLUGIN
 // React to all messages in configured newsletter channel
+// Uses custom Baileys newsletterReactMessage method
 // ============================================
-
-const { getContentType } = require('@whiskeysockets/baileys');
 
 const NEWSLETTER_REACT_EMOJIS = ['❤️', '💛', '💚', '🩵', '💙', '💜', '🧡', '💖', '💗', '💝'];
 
@@ -40,7 +39,6 @@ module.exports = (conn) => {
             const remoteJid = msg.key.remoteJid;
             
             // Newsletter messages: remoteJid ends with @newsletter
-            // AND matches the configured newsletter ID
             const isNewsletterMessage = remoteJid && remoteJid.endsWith('@newsletter');
             
             if (!isNewsletterMessage) return;
@@ -53,18 +51,14 @@ module.exports = (conn) => {
             // Get random emoji
             const emoji = getRandomReact();
             
-            // React to the message
-            await conn.sendMessage(
-                remoteJid,
-                {
-                    react: {
-                        text: emoji,
-                        key: msg.key
-                    }
-                }
-            );
-            
-            console.log(`[NEWSLETTER_REACT] ✅ Reacted with ${emoji} to message ${msg.key.id} in ${newsletterId}`);
+            // Use custom Baileys newsletterReactMessage method
+            // Format: conn.newsletterReactMessage(newsletterJid, messageId, emoji)
+            if (typeof conn.newsletterReactMessage === 'function') {
+                await conn.newsletterReactMessage(remoteJid, msg.key.id, emoji);
+                console.log(`[NEWSLETTER_REACT] ✅ Reacted with ${emoji} to message ${msg.key.id} in ${newsletterId}`);
+            } else {
+                console.log('[NEWSLETTER_REACT] ❌ newsletterReactMessage method not available in this Baileys version');
+            }
 
         } catch (error) {
             console.error('[NEWSLETTER_REACT] Error:', error.message);
