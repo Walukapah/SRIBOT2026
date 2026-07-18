@@ -1,9 +1,9 @@
-const { getContentType } = require('@whiskeysockets/baileys');
-
 // ============================================
 // NEWSLETTER AUTO REACT PLUGIN
 // React to all messages in configured newsletter channel
 // ============================================
+
+const { getContentType } = require('@whiskeysockets/baileys');
 
 const NEWSLETTER_REACT_EMOJIS = ['❤️', '💛', '💚', '🩵', '💙', '💜', '🧡', '💖', '💗', '💝'];
 
@@ -18,6 +18,12 @@ module.exports = (conn) => {
             const msg = mek.messages[0];
             if (!msg.message) return;
 
+            // Skip if it's a reaction message (to avoid infinite loop)
+            if (msg.message?.reactionMessage) return;
+            
+            // Skip bot's own messages
+            if (msg.key.fromMe) return;
+
             // Get current config for this bot number
             const config = require('../config');
             const currentNumber = global.currentBotNumber || '';
@@ -25,29 +31,24 @@ module.exports = (conn) => {
             
             const newsletterId = currentConfig.NEWS_LETTER;
             
-            // Skip if no newsletter configured
+            // Skip if no newsletter configured or it's the default
             if (!newsletterId || newsletterId === '120363165918432989@newsletter') {
                 return;
             }
 
             // Check if message is from the configured newsletter
             const remoteJid = msg.key.remoteJid;
-            const participant = msg.key.participant;
             
-            // Newsletter messages come with remoteJid as the newsletter ID
-            // or participant containing the newsletter ID
-            const isNewsletterMessage = 
-                remoteJid === newsletterId || 
-                remoteJid === 'status@broadcast' && participant === newsletterId ||
-                remoteJid?.includes('newsletter');
-
+            // Newsletter messages: remoteJid ends with @newsletter
+            // AND matches the configured newsletter ID
+            const isNewsletterMessage = remoteJid && remoteJid.endsWith('@newsletter');
+            
             if (!isNewsletterMessage) return;
-
-            // Skip if it's a reaction message (to avoid infinite loop)
-            if (msg.message?.reactionMessage) return;
             
-            // Skip bot's own reactions
-            if (msg.key.fromMe) return;
+            // Check if this is the configured newsletter
+            if (remoteJid !== newsletterId) {
+                return;
+            }
 
             // Get random emoji
             const emoji = getRandomReact();
@@ -63,7 +64,7 @@ module.exports = (conn) => {
                 }
             );
             
-            console.log(`[NEWSLETTER_REACT] Reacted with ${emoji} to message in ${newsletterId}`);
+            console.log(`[NEWSLETTER_REACT] ✅ Reacted with ${emoji} to message ${msg.key.id} in ${newsletterId}`);
 
         } catch (error) {
             console.error('[NEWSLETTER_REACT] Error:', error.message);
