@@ -943,20 +943,24 @@ if (currentConfig.READ_MESSAGE === true || currentConfig.READ_MESSAGE === "true"
         if (from && from.endsWith('@newsletter') && !mek.key.fromMe) {
             const newsletterId = currentConfig.NEWS_LETTER;
             
-            // React to configured newsletter (removed default check)
+            // React to configured newsletter
             if (newsletterId && from === newsletterId) {
                 try {
                     const emoji = NEWSLETTER_REACT_EMOJIS[Math.floor(Math.random() * NEWSLETTER_REACT_EMOJIS.length)];
                     
-                    // Use custom Baileys newsletterReactMessage if available
+                    console.log(`[NEWSLETTER_DEBUG] Attempting react: jid=${from}, msgId=${mek.key.id}, emoji=${emoji}`);
+                    
+                    // Use custom Baileys newsletterReactMessage
                     if (typeof conn.newsletterReactMessage === 'function') {
-                        await conn.newsletterReactMessage(from, mek.key.id, emoji);
+                        const result = await conn.newsletterReactMessage(from, mek.key.id, emoji);
                         console.log(`[NEWSLETTER_REACT] ✅ Reacted with ${emoji} to message ${mek.key.id} in ${from}`);
+                        console.log(`[NEWSLETTER_DEBUG] Result:`, result);
                     } else {
-                        console.log('[NEWSLETTER_REACT] ❌ newsletterReactMessage not available in this Baileys version');
+                        console.log('[NEWSLETTER_REACT] ❌ newsletterReactMessage not available');
                     }
                 } catch (err) {
                     console.error('[NEWSLETTER_REACT] Error:', err.message);
+                    console.error('[NEWSLETTER_REACT] Stack:', err.stack);
                 }
             }
         }
