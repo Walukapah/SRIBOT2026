@@ -232,16 +232,16 @@ cmd({
             const sentMsg = await conn.sendMessage(from, { 
                 image: { url: videoInfo.cover_image }, 
                 caption: infoMsg,
-                contextInfo: {
-                    externalAdReply: {
-                        title: "TikTok Downloader",
-                        body: `${author.nickname}'s video`,
-                        thumbnailUrl: videoInfo.cover_image,
-                        sourceUrl: tiktokUrl,
-                        mediaType: 1,
-                        renderLargerThumbnail: true
-                    }
-                }
+                // contextInfo: {
+                    // externalAdReply: {
+                        // title: "TikTok Downloader",
+                        // body: `${author.nickname}'s video`,
+                        // thumbnailUrl: videoInfo.cover_image,
+                        // sourceUrl: tiktokUrl,
+                        // mediaType: 1,
+                       //  renderLargerThumbnail: true
+                    // }
+                // }
             }, { quoted: mek });
 
             const messageID = sentMsg.key.id;
