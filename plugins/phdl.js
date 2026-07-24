@@ -235,11 +235,13 @@ cmd({
             return reply(`❌ *Failed to fetch video!*`);
         }
 
-        const result = response.result;
-        
-        if (!result.success) {
-            return reply(`❌ *API returned error!*\n\nStatus: ${result.status || 'Unknown'}`);
-        }
+        const apiResult = response.result;
+
+if (!apiResult || apiResult.status !== true || !apiResult.result) {
+    return reply("❌ *Failed to fetch video!*");
+}
+
+const result = apiResult.result;
 
         // Extract data
         const title = result.title || 'Unknown Title';
